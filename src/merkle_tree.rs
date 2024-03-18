@@ -1,6 +1,4 @@
 use halo2curves::{bn256::Fr, ff::PrimeField};
-use num_integer::Integer;
-use num_traits::pow;
 use std::{collections::HashMap, marker::PhantomData};
 
 use crate::{field_to_bits_vec, poseidon::Hasher};
@@ -14,9 +12,9 @@ where
     H: Hasher<WIDTH>,
 {
     /// HashMap to keep the level and index of the nodes
-    pub(crate) nodes: HashMap<(u32, Fr), Fr>,
+    pub(crate) nodes: HashMap<(u32, Fr), (Fr, Fr)>,
     /// Default nodes
-    default: Vec<Fr>,
+    default: Vec<(Fr, Fr)>,
     /// PhantomData for the hasher
     _h: PhantomData<H>,
 }
@@ -30,17 +28,17 @@ where
         let num_levels = Fr::NUM_BITS as usize;
 
         let mut default = Vec::new();
-        default.push(Fr::zero());
+        default.push((Fr::zero(), Fr::zero()));
         for i in 1..num_levels {
             let nodes = [
-                default[i - 1],
-                default[i - 1],
+                default[i - 1].0,
                 Fr::zero(),
+                default[i - 1].0,
                 Fr::zero(),
                 Fr::zero(),
             ];
             let h = H::new(nodes).finalize();
-            default.push(h);
+            default.push((h, Fr::zero()));
         }
 
         Self {
@@ -50,123 +48,126 @@ where
         }
     }
 
-    pub fn insert_leaf_single(&mut self, index: Fr, value: Fr) {
-        let inputs = [value, Fr::zero(), Fr::zero(), Fr::zero(), Fr::zero()];
-        let h = H::new(inputs).finalize();
+    pub fn insert_leaf(&mut self, index: Fr, leaf: (Fr, Fr)) {
         let bits = field_to_bits_vec(index);
 
         let mut curr_index = index * Fr::from_u128(2).invert().unwrap();
-        let mut curr_node = h;
+        let mut curr_node = leaf;
         for i in 0..Fr::NUM_BITS {
             let inputs = if bits[i as usize] {
-                let key = (i, curr_index);
-                let neighbour = self.nodes.get(&key).unwrap_or(&self.default[i as usize]);
-                [*neighbour, curr_node, Fr::zero(), Fr::zero(), Fr::zero()]
+                let (node, value) = curr_node;
+                let n_key = (i, curr_index - Fr::one());
+                let (n_node, n_value) = self.nodes.get(&n_key).unwrap_or(&self.default[i as usize]);
+                [*n_node, *n_value, node, value, Fr::zero()]
             } else {
-                let key = (i, curr_index + Fr::one());
-                let neighbour = self.nodes.get(&key).unwrap_or(&self.default[i as usize]);
-                [*neighbour, curr_node, Fr::zero(), Fr::zero(), Fr::zero()]
+                let (node, value) = curr_node;
+                let n_key = (i, curr_index + Fr::one());
+                let (n_node, n_value) = self.nodes.get(&n_key).unwrap_or(&self.default[i as usize]);
+                [*n_node, *n_value, node, value, Fr::zero()]
             };
 
             let h = H::new(inputs).finalize();
-            self.nodes.insert((i + 1, curr_index), h);
+            let sum = inputs[1] + inputs[3];
+            self.nodes.insert((i + 1, curr_index), (h, sum));
 
-            curr_node = h;
+            curr_node = (h, sum);
             curr_index = curr_index * Fr::from_u128(2).invert().unwrap();
+        }
+    }
+
+    /// Find path for the given value to the root
+    pub fn find_path(&self, index: Fr) -> Path<H> {
+        let mut path_arr: [[Fr; 4]; Fr::NUM_BITS as usize] =
+            [[Fr::zero(); 4]; Fr::NUM_BITS as usize];
+
+        let bits = field_to_bits_vec(index);
+
+        let mut curr_index = index * Fr::from_u128(2).invert().unwrap();
+        for level in 0..Fr::NUM_BITS {
+            let is_right = bits[level as usize];
+            let pair = if is_right {
+                let (left, l_value) = self
+                    .nodes
+                    .get(&(level, curr_index - Fr::one()))
+                    .unwrap_or(&self.default[level as usize]);
+                let (right, r_value) = self
+                    .nodes
+                    .get(&(level, curr_index))
+                    .unwrap_or(&self.default[level as usize]);
+                [*left, *l_value, *right, *r_value]
+            } else {
+                let (left, l_value) = self
+                    .nodes
+                    .get(&(level, curr_index))
+                    .unwrap_or(&self.default[level as usize]);
+                let (right, r_value) = self
+                    .nodes
+                    .get(&(level, curr_index + Fr::one()))
+                    .unwrap_or(&self.default[level as usize]);
+                [*left, *l_value, *right, *r_value]
+            };
+            path_arr[level as usize] = pair;
+            curr_index = curr_index * Fr::from_u128(2).invert().unwrap();
+        }
+
+        let value = if bits[0] {
+            path_arr[0][1]
+        } else {
+            path_arr[0][3]
+        };
+
+        Path {
+            value,
+            path_arr,
+            _h: PhantomData,
         }
     }
 }
 
-// #[derive(Clone)]
-// /// Path structure
-// pub struct Path<const ARITY: usize, const HEIGHT: usize, const LENGTH: usize, H>
-// where
-// 	H: Hasher<WIDTH>,
-// {
-// 	/// Value that is based on for construction of the path
-// 	#[allow(dead_code)]
-// 	pub(crate) value: Fr,
-// 	/// Array that keeps the path
-// 	pub(crate) path_arr: [[Fr; ARITY]; LENGTH],
-// 	/// PhantomData for the hasher
-// 	_h: PhantomData<H>,
-// }
+#[derive(Clone)]
+/// Path structure
+pub struct Path<H>
+where
+    H: Hasher<WIDTH>,
+{
+    /// Value that is based on for construction of the path
+    #[allow(dead_code)]
+    pub(crate) value: Fr,
+    /// Array that keeps the path
+    pub(crate) path_arr: [[Fr; 4]; Fr::NUM_BITS as usize],
+    /// PhantomData for the hasher
+    _h: PhantomData<H>,
+}
 
-// impl<const ARITY: usize, const HEIGHT: usize, const LENGTH: usize, H>
-// 	Path<ARITY, HEIGHT, LENGTH, H>
-// where
-// 	H: Hasher<WIDTH>,
-// {
-// 	/// Find path for the given value to the root
-// 	pub fn find_path(
-// 		merkle_tree: &MerkleTree<ARITY, HEIGHT, H>, mut value_index: usize,
-// 	) -> Path<ARITY, HEIGHT, LENGTH, H> {
-// 		let value = merkle_tree.nodes[&0][value_index];
-// 		let mut path_arr: [[Fr; ARITY]; LENGTH] = [[Fr::zero(); ARITY]; LENGTH];
-
-// 		for level in 0..merkle_tree.height {
-// 			let wrap = value_index.div_rem(&ARITY);
-// 			for i in 0..ARITY {
-// 				path_arr[level][i] = merkle_tree.nodes[&level][wrap.0 * ARITY + i];
-// 			}
-// 			value_index /= ARITY;
-// 		}
-
-// 		path_arr[merkle_tree.height][0] = merkle_tree.root;
-// 		Self { value, path_arr, _h: PhantomData }
-// 	}
-
-// 	/// Sanity check for the path array
-// 	pub fn verify(&self) -> bool {
-// 		let mut is_satisfied = true;
-// 		let mut hasher_inputs = [Fr::zero(); WIDTH];
-// 		for i in 0..self.path_arr.len() - 1 {
-// 			hasher_inputs[..ARITY].copy_from_slice(&self.path_arr[i][..ARITY]);
-// 			let hasher = H::new(hasher_inputs);
-// 			is_satisfied &= self.path_arr[i + 1].contains(&(hasher.finalize()[0]))
-// 		}
-// 		is_satisfied
-// 	}
-// }
+impl<H> Path<H>
+where
+    H: Hasher<WIDTH>,
+{
+    /// Sanity check for the path array
+    pub fn verify(&self) -> bool {
+        let mut is_satisfied = true;
+        let mut hasher_inputs = [Fr::zero(); WIDTH];
+        for i in 0..self.path_arr.len() - 1 {
+            hasher_inputs[..4].copy_from_slice(&self.path_arr[i][..4]);
+            let node = H::new(hasher_inputs).finalize();
+            is_satisfied &= self.path_arr[i + 1].contains(&node)
+        }
+        is_satisfied
+    }
+}
 
 #[cfg(test)]
 mod test {
     use super::SparseMerkleTree;
     use crate::{params::poseidon_bn254_5x5::Params, poseidon::Poseidon};
-    use halo2curves::{
-        bn256::Fr,
-        ff::{Field, PrimeField},
-    };
+    use halo2curves::{bn256::Fr, ff::Field};
     use rand::thread_rng;
 
     #[test]
-    fn should_build_tree_and_find_path_arity_2() {
+    fn should_build_tree() {
         // Testing build_tree and find_path functions with arity 2
         let rng = &mut thread_rng();
-        let value = Fr::random(rng.clone());
-        let leaves = vec![
-            Fr::random(rng.clone()),
-            Fr::random(rng.clone()),
-            Fr::random(rng.clone()),
-            Fr::random(rng.clone()),
-            value,
-            Fr::random(rng.clone()),
-            Fr::random(rng.clone()),
-            Fr::random(rng.clone()),
-        ];
-        // let merkle = MerkleTree::<2, 3, Poseidon<5, Params>>::build_tree(leaves);
-        // let path = Path::<2, 3, 4, Poseidon<5, Params>>::find_path(&merkle, 4);
-
-        // assert!(path.verify());
-        // // Assert last element of the array and the root of the tree
-        // assert_eq!(path.path_arr[merkle.height][0], merkle.root);
-    }
-
-    #[test]
-    fn should_build_tree_and_find_path_arity_3() {
-        // Testing build_tree and find_path functions with arity 3
-        let rng = &mut thread_rng();
-        let value = Fr::random(rng.clone());
+        let node = Fr::random(rng.clone());
         let leaves = vec![
             Fr::random(rng.clone()),
             Fr::random(rng.clone()),
@@ -175,7 +176,7 @@ mod test {
             Fr::random(rng.clone()),
             Fr::random(rng.clone()),
             Fr::random(rng.clone()),
-            value,
+            node,
             Fr::random(rng.clone()),
             Fr::random(rng.clone()),
             Fr::random(rng.clone()),
@@ -189,23 +190,13 @@ mod test {
             Fr::random(rng.clone()),
             Fr::random(rng.clone()),
         ];
-        // let merkle = MerkleTree::<3, 3, Poseidon<5, Params>>::build_tree(leaves);
-        // let path = Path::<3, 3, 4, Poseidon<5, Params>>::find_path(&merkle, 7);
+        let mut merkle = SparseMerkleTree::<Poseidon<5, Params>>::new();
+        for (i, leaf) in leaves.iter().enumerate() {
+            let index = Fr::from(i as u64);
+            merkle.insert_leaf(index, (*leaf, Fr::from(5)));
+        }
+        let path = merkle.find_path(Fr::from(7));
 
-        // assert!(path.verify());
-        // // Assert last element of the array and the root of the tree
-        // assert_eq!(path.path_arr[merkle.height][0], merkle.root);
-    }
-
-    #[test]
-    fn should_build_small_tree() {
-        // Testing build_tree and find_path functions with a small array
-        // let rng = &mut thread_rng();
-        // let value = Fr::random(rng.clone());
-        // let merkle = MerkleTree::<2, 0, Poseidon<5, Params>>::build_tree(vec![value]);
-        // let path = Path::<2, 0, 1, Poseidon<5, Params>>::find_path(&merkle, 0);
-        // assert!(path.verify());
-        // // Assert last element of the array and the root of the tree
-        // assert_eq!(path.path_arr[merkle.height][0], merkle.root);
+        assert!(path.verify());
     }
 }
