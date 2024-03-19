@@ -23,6 +23,11 @@ impl<H> SparseMerkleTree<H>
 where
     H: Hasher<WIDTH>,
 {
+    pub fn root(&self) -> (Fr, Fr) {
+        let num_levels = Fr::NUM_BITS;
+        self.nodes.get(&(num_levels, Fr::zero())).unwrap().clone()
+    }
+
     /// Build a MerkleTree from given leaf nodes and height
     pub fn new() -> Self {
         let num_levels = Fr::NUM_BITS as usize;
@@ -51,6 +56,8 @@ where
     pub fn insert_leaf(&mut self, index: Fr, leaf: (Fr, Fr)) {
         let bits = field_to_bits_vec(index);
 
+        self.nodes.insert((0, index), leaf).unwrap();
+
         let mut curr_index = index * Fr::from_u128(2).invert().unwrap();
         let mut curr_node = leaf;
         for i in 0..Fr::NUM_BITS {
@@ -64,6 +71,54 @@ where
                 let n_key = (i, curr_index + Fr::one());
                 let (n_node, n_value) = self.nodes.get(&n_key).unwrap_or(&self.default[i as usize]);
                 [*n_node, *n_value, node, value, Fr::zero()]
+            };
+
+            let h = H::new(inputs).finalize();
+            let sum = inputs[1] + inputs[3];
+            self.nodes.insert((i + 1, curr_index), (h, sum));
+
+            curr_node = (h, sum);
+            curr_index = curr_index * Fr::from_u128(2).invert().unwrap();
+        }
+    }
+
+    pub fn insert_leaf_mul(&mut self, index: Fr, leaf: (Fr, Fr)) {
+        let bits = field_to_bits_vec(index);
+
+        let (local_trust, global_trust) = leaf;
+        let trust = local_trust * global_trust;
+
+        self.nodes
+            .insert((0, index), (local_trust, global_trust))
+            .unwrap();
+
+        let inputs = if bits[0] {
+            let n_key = (0, index - Fr::one());
+            let (n_lt, n_gt) = self.nodes.get(&n_key).unwrap_or(&self.default[0]);
+            [*n_lt, *n_gt, local_trust, global_trust, Fr::zero()]
+        } else {
+            let n_key = (0, index + Fr::one());
+            let (n_lt, n_gt) = self.nodes.get(&n_key).unwrap_or(&self.default[0]);
+            [local_trust, global_trust, *n_lt, *n_gt, Fr::zero()]
+        };
+
+        let h = H::new(inputs).finalize();
+        self.nodes.insert((1, index), (h, trust));
+
+        let mut curr_node = (h, trust);
+        let mut curr_index = index * Fr::from_u128(2).invert().unwrap();
+
+        for i in 1..Fr::NUM_BITS {
+            let inputs = if bits[i as usize] {
+                let (node, value) = curr_node;
+                let n_key = (i, curr_index - Fr::one());
+                let (n_node, n_value) = self.nodes.get(&n_key).unwrap_or(&self.default[i as usize]);
+                [*n_node, *n_value, node, value, Fr::zero()]
+            } else {
+                let (node, value) = curr_node;
+                let n_key = (i, curr_index + Fr::one());
+                let (n_node, n_value) = self.nodes.get(&n_key).unwrap_or(&self.default[i as usize]);
+                [node, value, *n_node, *n_value, Fr::zero()]
             };
 
             let h = H::new(inputs).finalize();
@@ -145,6 +200,18 @@ where
 {
     /// Sanity check for the path array
     pub fn verify(&self) -> bool {
+        let mut is_satisfied = true;
+        let mut hasher_inputs = [Fr::zero(); WIDTH];
+        for i in 0..self.path_arr.len() - 1 {
+            hasher_inputs[..4].copy_from_slice(&self.path_arr[i][..4]);
+            let node = H::new(hasher_inputs).finalize();
+            is_satisfied &= self.path_arr[i + 1].contains(&node)
+        }
+        is_satisfied
+    }
+
+    /// Verify Multiplicative leaf path
+    pub fn verify_mul(&self) -> bool {
         let mut is_satisfied = true;
         let mut hasher_inputs = [Fr::zero(); WIDTH];
         for i in 0..self.path_arr.len() - 1 {
