@@ -39,43 +39,6 @@ pub fn field_to_bits_vec(num: Fr) -> Vec<bool> {
     sliced_bits
 }
 
-pub struct Attestation {
-    pub(crate) from: Fr,
-    pub(crate) to: Fr,
-    pub(crate) weight: Fr,
-    pub(crate) timestamp: Fr,
-}
-
-impl Attestation {
-    fn verify(&self) -> bool {
-        true
-    }
-}
-
-pub struct LinearCombination {
-    pub(crate) from: Fr,
-    pub(crate) to: Fr,
-    pub(crate) sum_weights: Fr,
-}
-
-fn aggregate_attestations(atts: Vec<Attestation>) -> Vec<LinearCombination> {
-    let mut peer_map = HashMap::new();
-    atts.iter().for_each(|x| {
-        assert!(x.verify());
-        let prev = peer_map.get(&(x.from, x.to)).unwrap_or(&Fr::zero()).clone();
-        peer_map.insert((x.from, x.to), prev + x.weight);
-    });
-
-    peer_map
-        .iter()
-        .map(|(&(from, to), &val)| LinearCombination {
-            from,
-            to,
-            sum_weights: val,
-        })
-        .collect()
-}
-
 fn main() {
     let mut rng = thread_rng();
     let peers = vec![
@@ -84,56 +47,6 @@ fn main() {
         Fr::random(&mut rng),
         Fr::random(&mut rng),
         Fr::random(&mut rng),
-    ];
-    let attestations = vec![
-        Attestation {
-            from: peers[0],
-            to: peers[1],
-            weight: Fr::from(1),
-            timestamp: Fr::zero(),
-        },
-        Attestation {
-            from: peers[0],
-            to: peers[2],
-            weight: Fr::from(4),
-            timestamp: Fr::zero(),
-        },
-        Attestation {
-            from: peers[0],
-            to: peers[3],
-            weight: Fr::from(1),
-            timestamp: Fr::zero(),
-        },
-        Attestation {
-            from: peers[0],
-            to: peers[4],
-            weight: Fr::from(4),
-            timestamp: Fr::zero(),
-        },
-        Attestation {
-            from: peers[1],
-            to: peers[2],
-            weight: Fr::from(4),
-            timestamp: Fr::zero(),
-        },
-        Attestation {
-            from: peers[1],
-            to: peers[3],
-            weight: Fr::from(1),
-            timestamp: Fr::zero(),
-        },
-        Attestation {
-            from: peers[1],
-            to: peers[4],
-            weight: Fr::from(4),
-            timestamp: Fr::zero(),
-        },
-        Attestation {
-            from: peers[2],
-            to: peers[4],
-            weight: Fr::from(4),
-            timestamp: Fr::zero(),
-        },
     ];
     let domain = "EigenTrust".to_string();
     let lt = [
