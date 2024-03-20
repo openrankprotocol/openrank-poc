@@ -10,4 +10,6 @@ halo2curves = { git = "https://github.com/privacy-scaling-explorations/halo2curv
 hex = "0.4.3"
 num-integer = "0.1.46"
 num-traits = "0.2.18"
+num-rational = "0.4.1"
 rand = "0.8.5"
+num-bigint = "0.4.4"
