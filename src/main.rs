@@ -1,8 +1,11 @@
 use algo::{field, rational};
+use compute_node::ComputeNode;
+use da::SmartContract;
 use halo2curves::{
     bn256::Fr,
     ff::{Field, PrimeField},
 };
+use merkle_tree::SparseMerkleTree;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
 use params::poseidon_bn254_5x5::Params;
@@ -13,13 +16,25 @@ use std::collections::HashMap;
 use crate::algo::rational::Br;
 
 mod algo;
-mod compute_tree;
-mod local_trust_tree;
+mod compute_node;
+mod da;
 mod merkle_tree;
 mod params;
 mod poseidon;
 
 type Hasher = Poseidon<5, Params>;
+
+struct LinearCombination {
+    from: Fr,
+    to: Fr,
+    sum_of_weights: Fr,
+}
+
+#[derive(Clone, Debug)]
+struct Challenge {
+    from: Fr,
+    to: Fr,
+}
 
 /// Converts given bytes to the bits.
 pub fn to_bits(num: &[u8]) -> Vec<bool> {
@@ -39,7 +54,7 @@ pub fn field_to_bits_vec(num: Fr) -> Vec<bool> {
     sliced_bits
 }
 
-fn main() {
+fn compute_node_work() -> ComputeNode {
     let mut rng = thread_rng();
     let peers = vec![
         Fr::random(&mut rng),
@@ -61,5 +76,25 @@ fn main() {
     let lt_f = lt.map(|lt_vec| lt_vec.map(|score| Fr::from(score)));
     let pre_trust_f = pre_trust.map(|score| Fr::from(score));
     let res_f = field::positive_run(domain, lt_f, pre_trust_f);
-    println!("{:#?}", res_f);
+
+    ComputeNode::new(
+        peers,
+        lt.map(|lt_vec| lt_vec.map(|score| Fr::from(score)).to_vec())
+            .to_vec(),
+        res_f.to_vec(),
+    )
+}
+
+fn main() {
+    let mut sc = SmartContract::new();
+
+    // Compute node does the work
+    let compute_node = compute_node_work();
+    let da_data = compute_node.da_data();
+
+    // Compute node sumbits data to a smart contract
+    sc.post_data(da_data);
+
+    // TODO: Implement challenger logic
+    // TODO: Implement final challange response logic
 }
