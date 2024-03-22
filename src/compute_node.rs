@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    algo::field,
     merkle_tree::{Path, SparseMerkleTree},
     Challenge, Hasher, LinearCombination,
 };
-use halo2curves::bn256::Fr;
+use halo2curves::{bn256::Fr, ff::PrimeField};
 
 // TODO: Rename to appropriate name
 pub struct ComputeTreeFraudProof {
@@ -18,9 +17,39 @@ pub struct ComputeTreeFraudProof {
 }
 
 impl ComputeTreeFraudProof {
-    // TODO: implement verification logic
     pub fn verify(&self, data: [Fr; 2], challenge: Challenge) -> bool {
-        true
+        let [local_trust_tree_root, compute_tree_root] = data;
+        let is_peer_path_correct = self.peer_path.verify();
+        let is_neighbour_lt_path_correct = self.lt_tree_path.verify();
+        let is_neighbour_path_correct = self.neighbour_path.verify();
+        let is_neighbour_root_correct =
+            self.neighbour_path.path_arr[Fr::NUM_BITS as usize - 1][0] == compute_tree_root;
+        let is_lt_path_correct = self.lt_tree_path.master_tree_path.path_arr
+            [Fr::NUM_BITS as usize - 1][0]
+            == local_trust_tree_root;
+        let is_peer_root_correct = self.peer_path.master_tree_path.path_arr
+            [Fr::NUM_BITS as usize - 1][0]
+            == compute_tree_root;
+
+        let is_neighbour_index_correct = self.neighbour_path.index == challenge.from;
+        let is_neighbour_local_trust_correct =
+            self.lt_tree_path.sub_tree_path.index == challenge.from;
+        let is_peer_local_trust_correct = self.lt_tree_path.master_tree_path.index == challenge.to;
+        let is_peer_global_trust_term_correct =
+            self.peer_path.sub_tree_path.index == challenge.from;
+        let is_peer_global_trust_correct = self.peer_path.master_tree_path.index == challenge.to;
+
+        is_peer_path_correct
+            && is_neighbour_lt_path_correct
+            && is_neighbour_path_correct
+            && is_neighbour_root_correct
+            && is_lt_path_correct
+            && is_peer_root_correct
+            && is_neighbour_index_correct
+            && is_neighbour_local_trust_correct
+            && is_peer_local_trust_correct
+            && is_peer_global_trust_term_correct
+            && is_peer_global_trust_correct
     }
 }
 
@@ -52,7 +81,7 @@ impl ComputeNode {
         }
     }
 
-    pub fn da_data(&self) -> [Fr; 2] {
+    pub fn sc_data(&self) -> [Fr; 2] {
         let lt_root = self.local_trust_tree.master_tree.root().0;
         let compute_root = self.compute_tree.master_tree.root().0;
         [lt_root, compute_root]
@@ -62,6 +91,14 @@ impl ComputeNode {
 struct ComputeTreeMembershipProof {
     master_tree_path: Path<Hasher>,
     sub_tree_path: Path<Hasher>,
+}
+
+impl ComputeTreeMembershipProof {
+    pub fn verify(&self) -> bool {
+        let is_root_correct = self.master_tree_path.verify() & self.sub_tree_path.verify();
+        let is_link_correct = self.master_tree_path.value() == self.sub_tree_path.root();
+        is_root_correct && is_link_correct
+    }
 }
 
 struct ComputeTree {
@@ -137,6 +174,14 @@ impl ComputeTree {
 struct LocalTrustTreeMembershipProof {
     master_tree_path: Path<Hasher>,
     sub_tree_path: Path<Hasher>,
+}
+
+impl LocalTrustTreeMembershipProof {
+    pub fn verify(&self) -> bool {
+        let is_root_correct = self.master_tree_path.verify() & self.sub_tree_path.verify();
+        let is_link_correct = self.master_tree_path.value() == self.sub_tree_path.root();
+        is_root_correct && is_link_correct
+    }
 }
 
 struct LocalTrustTree {

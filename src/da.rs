@@ -26,6 +26,16 @@ impl SmartContract {
     }
 
     pub fn post_response(&mut self, response: ComputeTreeFraudProof) {
-        self.response = Some(response)
+        self.response = Some(response);
+        self.verify_fraud_proof();
+    }
+
+    pub fn verify_fraud_proof(&self) {
+        let res = self
+            .response
+            .as_ref()
+            .unwrap()
+            .verify(self.data.unwrap(), self.challenge.as_ref().unwrap().clone());
+        assert!(res);
     }
 }

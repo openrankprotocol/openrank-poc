@@ -56,9 +56,9 @@ where
     pub fn insert_leaf(&mut self, index: Fr, leaf: (Fr, Fr)) {
         let bits = field_to_bits_vec(index);
 
-        self.nodes.insert((0, index), leaf).unwrap();
+        self.nodes.insert((0, index), leaf);
 
-        let mut curr_index = index * Fr::from_u128(2).invert().unwrap();
+        let mut curr_index = next_index(index);
         let mut curr_node = leaf;
         for i in 0..Fr::NUM_BITS {
             let inputs = if bits[i as usize] {
@@ -78,7 +78,7 @@ where
             self.nodes.insert((i + 1, curr_index), (h, sum));
 
             curr_node = (h, sum);
-            curr_index = curr_index * Fr::from_u128(2).invert().unwrap();
+            curr_index = next_index(curr_index);
         }
     }
 
@@ -88,9 +88,7 @@ where
         let (local_trust, global_trust) = leaf;
         let trust = local_trust * global_trust;
 
-        self.nodes
-            .insert((0, index), (local_trust, global_trust))
-            .unwrap();
+        self.nodes.insert((0, index), (local_trust, global_trust));
 
         let inputs = if bits[0] {
             let n_key = (0, index - Fr::one());
@@ -106,8 +104,7 @@ where
         self.nodes.insert((1, index), (h, trust));
 
         let mut curr_node = (h, trust);
-        let mut curr_index = index * Fr::from_u128(2).invert().unwrap();
-
+        let mut curr_index = next_index(index);
         for i in 1..Fr::NUM_BITS {
             let inputs = if bits[i as usize] {
                 let (node, value) = curr_node;
@@ -126,7 +123,7 @@ where
             self.nodes.insert((i + 1, curr_index), (h, sum));
 
             curr_node = (h, sum);
-            curr_index = curr_index * Fr::from_u128(2).invert().unwrap();
+            curr_index = next_index(curr_index);
         }
     }
 
@@ -137,7 +134,7 @@ where
 
         let bits = field_to_bits_vec(index);
 
-        let mut curr_index = index * Fr::from_u128(2).invert().unwrap();
+        let mut curr_index = next_index(index);
         for level in 0..Fr::NUM_BITS {
             let is_right = bits[level as usize];
             let pair = if is_right {
@@ -162,17 +159,11 @@ where
                 [*left, *l_value, *right, *r_value]
             };
             path_arr[level as usize] = pair;
-            curr_index = curr_index * Fr::from_u128(2).invert().unwrap();
+            curr_index = next_index(curr_index);
         }
 
-        let value = if bits[0] {
-            path_arr[0][1]
-        } else {
-            path_arr[0][3]
-        };
-
         Path {
-            value,
+            index,
             path_arr,
             _h: PhantomData,
         }
@@ -185,9 +176,8 @@ pub struct Path<H>
 where
     H: Hasher<WIDTH>,
 {
-    /// Value that is based on for construction of the path
-    #[allow(dead_code)]
-    pub(crate) value: Fr,
+    /// Index of the leaf node
+    pub(crate) index: Fr,
     /// Array that keeps the path
     pub(crate) path_arr: [[Fr; 4]; Fr::NUM_BITS as usize],
     /// PhantomData for the hasher
@@ -200,26 +190,81 @@ where
 {
     /// Sanity check for the path array
     pub fn verify(&self) -> bool {
+        let bits = field_to_bits_vec(self.index);
         let mut is_satisfied = true;
         let mut hasher_inputs = [Fr::zero(); WIDTH];
-        for i in 0..self.path_arr.len() - 1 {
+        for i in 0..Fr::NUM_BITS as usize - 1 {
+            let (parent, sum) = if bits[i] {
+                (self.path_arr[i + 1][0], self.path_arr[i + 1][1])
+            } else {
+                (self.path_arr[i + 1][2], self.path_arr[i + 1][3])
+            };
+
             hasher_inputs[..4].copy_from_slice(&self.path_arr[i][..4]);
             let node = H::new(hasher_inputs).finalize();
-            is_satisfied &= self.path_arr[i + 1].contains(&node)
+            let res_sum = self.path_arr[i][1] + self.path_arr[i][3];
+            let is_same_parent_node = (parent, sum) == (node, res_sum);
+            is_satisfied &= is_same_parent_node;
         }
         is_satisfied
     }
 
     /// Verify Multiplicative leaf path
     pub fn verify_mul(&self) -> bool {
+        let bits = field_to_bits_vec(self.index);
         let mut is_satisfied = true;
         let mut hasher_inputs = [Fr::zero(); WIDTH];
-        for i in 0..self.path_arr.len() - 1 {
+
+        let (parent, sum) = if bits[0] {
+            (self.path_arr[0][0], self.path_arr[0][1])
+        } else {
+            (self.path_arr[0][2], self.path_arr[0][3])
+        };
+
+        hasher_inputs[..4].copy_from_slice(&self.path_arr[0][..4]);
+        let node = H::new(hasher_inputs).finalize();
+        let res_sum = self.path_arr[0][1] * self.path_arr[0][3];
+        let is_same_parent_node = (parent, sum) == (node, res_sum);
+        is_satisfied &= is_same_parent_node;
+
+        for i in 1..Fr::NUM_BITS as usize - 1 {
+            let (parent, sum) = if bits[i] {
+                (self.path_arr[i + 1][0], self.path_arr[i + 1][1])
+            } else {
+                (self.path_arr[i + 1][2], self.path_arr[i + 1][3])
+            };
+
             hasher_inputs[..4].copy_from_slice(&self.path_arr[i][..4]);
             let node = H::new(hasher_inputs).finalize();
-            is_satisfied &= self.path_arr[i + 1].contains(&node)
+            let res_sum = self.path_arr[i][1] + self.path_arr[i][3];
+            let is_same_parent_node = (parent, sum) == (node, res_sum);
+            is_satisfied &= is_same_parent_node;
         }
         is_satisfied
+    }
+
+    pub fn root(&self) -> (Fr, Fr) {
+        (
+            self.path_arr[Fr::NUM_BITS as usize - 1][0],
+            self.path_arr[Fr::NUM_BITS as usize - 1][1],
+        )
+    }
+
+    pub fn value(&self) -> (Fr, Fr) {
+        let bits = field_to_bits_vec(self.index);
+        if bits[0] {
+            (self.path_arr[0][0], self.path_arr[0][1])
+        } else {
+            (self.path_arr[1][0], self.path_arr[1][1])
+        }
+    }
+}
+
+fn next_index(i: Fr) -> Fr {
+    if i.is_odd().unwrap_u8() == 1 {
+        (i - Fr::one()) * Fr::from(2).invert().unwrap()
+    } else {
+        i * Fr::from(2).invert().unwrap()
     }
 }
 
