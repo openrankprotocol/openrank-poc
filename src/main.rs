@@ -1,10 +1,15 @@
-use algo::field;
+use algo::{
+    field,
+    rational::{self, Br},
+};
 use compute_node::ComputeNode;
 use da::SmartContract;
 use halo2curves::{
     bn256::Fr,
     ff::{Field, PrimeField},
 };
+use num_bigint::BigUint;
+use num_traits::{FromPrimitive, One};
 use params::poseidon_bn254_5x5::Params;
 use poseidon::Poseidon;
 use rand::thread_rng;
@@ -48,20 +53,23 @@ pub fn field_to_bits_vec(num: Fr) -> Vec<bool> {
     sliced_bits
 }
 
-fn compute_node_work(
-    domain: String,
-    peers: [Fr; 5],
-    lt: [[u64; 5]; 5],
-    pre_trust: [u64; 5],
-) -> ComputeNode {
+fn compute_node_work(peers: [Fr; 5], lt: [[u64; 5]; 5], pre_trust: [u64; 5]) -> ComputeNode {
     let lt_f = lt.map(|lt_arr| lt_arr.map(|score| Fr::from(score)));
     let pre_trust_f = pre_trust.map(|score| Fr::from(score));
-    let res_f = field::positive_run(domain, lt_f, pre_trust_f);
+    let lt_br = lt.map(|lt_arr| lt_arr.map(|score| BigUint::from_u64(score).unwrap()));
+    let pre_trust_br = pre_trust.map(|score| BigUint::from_u64(score).unwrap());
+
+    let seed = pre_trust_br.clone().map(|x| Br::new(x, BigUint::one()));
+    let res_f = field::positive_run::<30>(lt_f, pre_trust_f);
+    let res_br = rational::positive_run::<30>(lt_br.clone(), seed.clone());
+    let res_final_br = rational::positive_run::<1>(lt_br, seed);
 
     ComputeNode::new(
         peers.to_vec(),
         lt_f.map(|lt_arr| lt_arr.to_vec()).to_vec(),
         res_f.to_vec(),
+        res_br.to_vec(),
+        res_final_br.to_vec(),
     )
 }
 
@@ -74,7 +82,6 @@ fn main() {
         Fr::random(&mut rng),
         Fr::random(&mut rng),
     ];
-    let domain = "EigenTrust".to_string();
     let lt = [
         [0, 1, 4, 1, 4],
         [0, 0, 4, 1, 4],
@@ -87,7 +94,7 @@ fn main() {
     let mut sc = SmartContract::new();
 
     // Compute node does the work
-    let compute_node = compute_node_work(domain, peers, lt, pre_trust);
+    let compute_node = compute_node_work(peers, lt, pre_trust);
 
     // Compute node sumbits data to a smart contract
     let sc_data = compute_node.sc_data();
@@ -101,6 +108,6 @@ fn main() {
     sc.post_challenge(challenge.clone());
 
     // The submitter posts a response to the challenge
-    let proof = compute_node.compute_fraud_proof(challenge);
+    let proof = compute_node.compute_fraud_proof(challenge, 10, 10);
     sc.post_response(proof); // proof is also verified here
 }

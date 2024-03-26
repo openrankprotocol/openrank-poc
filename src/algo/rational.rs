@@ -1,12 +1,11 @@
 use num_bigint::BigUint;
 use num_rational::Ratio;
-use num_traits::{FromPrimitive, One, Zero};
+use num_traits::Zero;
 use std::array::from_fn;
 
 pub type Br = Ratio<BigUint>;
 
 const NUM_NEIGHBOURS: usize = 5;
-const NUM_ITER: usize = 30;
 
 fn validate_lt(lt: [[BigUint; NUM_NEIGHBOURS]; NUM_NEIGHBOURS]) {
     // Compute sum of incoming distrust
@@ -20,14 +19,8 @@ fn validate_lt(lt: [[BigUint; NUM_NEIGHBOURS]; NUM_NEIGHBOURS]) {
     }
 }
 
-fn normalise(
-    lt_vec: [BigUint; NUM_NEIGHBOURS],
-    pre_trust: [BigUint; NUM_NEIGHBOURS],
-) -> [Br; NUM_NEIGHBOURS] {
+fn normalise(lt_vec: [BigUint; NUM_NEIGHBOURS]) -> [Br; NUM_NEIGHBOURS] {
     let sum: BigUint = lt_vec.clone().into_iter().sum();
-    if sum == BigUint::zero() {
-        return pre_trust.map(|x| Br::new(x, BigUint::one()));
-    }
     lt_vec.map(|x| Br::new(x, sum.clone()))
 }
 
@@ -39,25 +32,18 @@ fn vec_add(s: [Br; NUM_NEIGHBOURS], y: [Br; NUM_NEIGHBOURS]) -> [Br; NUM_NEIGHBO
     out
 }
 
-pub fn positive_run(
-    domain: String,
+pub fn positive_run<const NUM_ITER: usize>(
     lt: [[BigUint; NUM_NEIGHBOURS]; NUM_NEIGHBOURS],
-    pre_trust: [BigUint; NUM_NEIGHBOURS],
+    seed: [Br; NUM_NEIGHBOURS],
 ) -> [Br; NUM_NEIGHBOURS] {
-    println!();
-    println!("{} - Trust:", domain);
-
     validate_lt(lt.clone());
     let mut normalised_lt: [[Br; NUM_NEIGHBOURS]; NUM_NEIGHBOURS] =
         from_fn(|_| from_fn(|_| Br::zero()));
     for i in 0..NUM_NEIGHBOURS {
-        normalised_lt[i] = normalise(lt[i].clone(), pre_trust.clone());
+        normalised_lt[i] = normalise(lt[i].clone());
     }
 
-    let mut s = pre_trust.clone().map(|x| Br::new(x, BigUint::one()));
-    let pre_trust_weight = Br::new(BigUint::one(), BigUint::from_u8(2).unwrap());
-    let pre_trusted_scores =
-        pre_trust.map(|x| Br::new(x, BigUint::one()) * pre_trust_weight.clone());
+    let mut s = seed.clone();
 
     for _ in 0..NUM_ITER {
         let mut new_s = from_fn(|_| Br::zero());
@@ -69,10 +55,7 @@ pub fn positive_run(
             }
         }
 
-        let global_scores = new_s.map(|x| (Br::one() - pre_trust_weight.clone()) * x);
-        let current_s = vec_add(pre_trusted_scores.clone(), global_scores);
-
-        s = current_s;
+        s = new_s;
     }
 
     s

@@ -1,7 +1,6 @@
 use halo2curves::bn256::Fr;
 
 const NUM_NEIGHBOURS: usize = 5;
-const NUM_ITER: usize = 30;
 
 fn validate_lt(lt: [[Fr; NUM_NEIGHBOURS]; NUM_NEIGHBOURS]) {
     // Compute sum of incoming distrust
@@ -15,14 +14,8 @@ fn validate_lt(lt: [[Fr; NUM_NEIGHBOURS]; NUM_NEIGHBOURS]) {
     }
 }
 
-fn normalise(
-    lt_vec: [Fr; NUM_NEIGHBOURS],
-    pre_trust: [Fr; NUM_NEIGHBOURS],
-) -> [Fr; NUM_NEIGHBOURS] {
+fn normalise(lt_vec: [Fr; NUM_NEIGHBOURS]) -> [Fr; NUM_NEIGHBOURS] {
     let sum: Fr = lt_vec.iter().sum();
-    if sum == Fr::zero() {
-        return pre_trust;
-    }
     lt_vec.map(|x| x * sum.invert().unwrap())
 }
 
@@ -34,22 +27,16 @@ fn vec_add(s: [Fr; NUM_NEIGHBOURS], y: [Fr; NUM_NEIGHBOURS]) -> [Fr; NUM_NEIGHBO
     out
 }
 
-pub fn positive_run(
-    domain: String,
+pub fn positive_run<const NUM_ITER: usize>(
     mut lt: [[Fr; NUM_NEIGHBOURS]; NUM_NEIGHBOURS],
-    pre_trust: [Fr; NUM_NEIGHBOURS],
+    seed: [Fr; NUM_NEIGHBOURS],
 ) -> [Fr; NUM_NEIGHBOURS] {
-    println!();
-    println!("{} - Trust:", domain);
-
     validate_lt(lt);
     for i in 0..NUM_NEIGHBOURS {
-        lt[i] = normalise(lt[i], pre_trust);
+        lt[i] = normalise(lt[i]);
     }
 
-    let mut s = pre_trust.clone();
-    let pre_trust_weight = Fr::one() * Fr::from(2).invert().unwrap();
-    let pre_trusted_scores = pre_trust.map(|x| x * pre_trust_weight);
+    let mut s = seed.clone();
 
     for _ in 0..NUM_ITER {
         let mut new_s = [Fr::zero(); 5];
@@ -61,10 +48,7 @@ pub fn positive_run(
             }
         }
 
-        let global_scores = new_s.map(|x| (Fr::one() - pre_trust_weight) * x);
-        let current_s = vec_add(pre_trusted_scores, global_scores);
-
-        s = current_s;
+        s = new_s;
     }
 
     s
