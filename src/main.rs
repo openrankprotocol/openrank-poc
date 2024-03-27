@@ -62,7 +62,7 @@ fn compute_node_work(peers: [Fr; 5], lt: [[u64; 5]; 5], pre_trust: [u64; 5]) -> 
     let seed = pre_trust_br.clone().map(|x| Br::new(x, BigUint::one()));
     let res_f = field::positive_run::<30>(lt_f, pre_trust_f);
     let res_br = rational::positive_run::<30>(lt_br.clone(), seed.clone());
-    let res_final_br = rational::positive_run::<1>(lt_br, seed);
+    let res_final_br = rational::positive_run::<1>(lt_br, res_br.clone());
 
     ComputeNode::new(
         peers.to_vec(),
