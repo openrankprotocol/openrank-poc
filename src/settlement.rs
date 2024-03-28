@@ -35,7 +35,7 @@ impl SmartContract {
             .response
             .as_ref()
             .unwrap()
-            .verify(self.data.unwrap(), self.challenge.as_ref().unwrap().clone());
+            .verify(self.data.unwrap(), self.challenge.clone().unwrap());
         assert!(res);
     }
 }

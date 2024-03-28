@@ -24,7 +24,7 @@ where
     H: Hasher<WIDTH>,
 {
     pub fn root(&self) -> (Fr, Fr) {
-        let num_levels = Fr::NUM_BITS - 1;
+        let num_levels = Fr::NUM_BITS;
         self.nodes.get(&(num_levels, Fr::zero())).unwrap().clone()
     }
 
@@ -166,9 +166,12 @@ where
             curr_index = next_index(curr_index);
         }
 
+        let root = self.nodes.get(&(Fr::NUM_BITS, curr_index)).unwrap();
+
         Path {
             index,
             path_arr,
+            root: root.clone(),
             _h: PhantomData,
         }
     }
@@ -182,6 +185,8 @@ where
 {
     /// Index of the leaf node
     pub(crate) index: Fr,
+    /// Root node
+    pub(crate) root: (Fr, Fr),
     /// Array that keeps the path
     pub(crate) path_arr: [[Fr; 4]; Fr::NUM_BITS as usize],
     /// PhantomData for the hasher
@@ -211,6 +216,15 @@ where
             let is_same_parent_node = (parent, sum) == (node, res_sum);
             is_satisfied &= is_same_parent_node;
         }
+
+        let last_level = Fr::NUM_BITS as usize - 1;
+        hasher_inputs[..4].copy_from_slice(&self.path_arr[last_level][..4]);
+        let node = H::new(hasher_inputs).finalize();
+        let res_sum = self.path_arr[last_level][1] + self.path_arr[last_level][3];
+
+        let is_same_parent_node = self.root == (node, res_sum);
+        is_satisfied &= is_same_parent_node;
+
         is_satisfied
     }
 
@@ -249,14 +263,19 @@ where
             is_satisfied &= is_same_parent_node;
         }
 
+        let last_level = Fr::NUM_BITS as usize - 1;
+        hasher_inputs[..4].copy_from_slice(&self.path_arr[last_level][..4]);
+        let node = H::new(hasher_inputs).finalize();
+        let res_sum = self.path_arr[last_level][1] + self.path_arr[last_level][3];
+
+        let is_same_parent_node = self.root == (node, res_sum);
+        is_satisfied &= is_same_parent_node;
+
         is_satisfied
     }
 
     pub fn root(&self) -> (Fr, Fr) {
-        (
-            self.path_arr[Fr::NUM_BITS as usize - 1][0],
-            self.path_arr[Fr::NUM_BITS as usize - 1][1],
-        )
+        self.root
     }
 
     pub fn value(&self) -> (Fr, Fr) {

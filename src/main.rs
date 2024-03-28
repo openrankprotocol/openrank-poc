@@ -3,7 +3,6 @@ use algo::{
     rational::{self, Br},
 };
 use compute_node::ComputeNode;
-use da::SmartContract;
 use halo2curves::{
     bn256::Fr,
     ff::{Field, PrimeField},
@@ -13,13 +12,14 @@ use num_traits::{FromPrimitive, One};
 use params::poseidon_bn254_5x5::Params;
 use poseidon::Poseidon;
 use rand::thread_rng;
+use settlement::SmartContract;
 
 mod algo;
 mod compute_node;
-mod da;
 mod merkle_tree;
 mod params;
 mod poseidon;
+mod settlement;
 
 type Hasher = Poseidon<5, Params>;
 
@@ -58,10 +58,11 @@ fn compute_node_work(peers: [Fr; 5], lt: [[u64; 5]; 5], pre_trust: [u64; 5]) -> 
     let pre_trust_f = pre_trust.map(|score| Fr::from(score));
     let lt_br = lt.map(|lt_arr| lt_arr.map(|score| BigUint::from_u64(score).unwrap()));
     let pre_trust_br = pre_trust.map(|score| BigUint::from_u64(score).unwrap());
+    let seed_br = pre_trust_br.clone().map(|x| Br::new(x, BigUint::one()));
 
-    let seed = pre_trust_br.clone().map(|x| Br::new(x, BigUint::one()));
-    let res_f = field::positive_run::<30>(lt_f, pre_trust_f);
-    let res_br = rational::positive_run::<30>(lt_br.clone(), seed.clone());
+    let res_f = field::positive_run::<30>(lt_f.clone(), pre_trust_f);
+    let res_br = rational::positive_run::<30>(lt_br.clone(), seed_br.clone());
+
     let res_final_br = rational::positive_run::<1>(lt_br, res_br.clone());
 
     ComputeNode::new(
@@ -83,11 +84,11 @@ fn main() {
         Fr::random(&mut rng),
     ];
     let lt = [
-        [0, 1, 4, 1, 4],
-        [0, 0, 4, 1, 4],
-        [0, 1, 0, 1, 4],
-        [2, 1, 5, 0, 4],
-        [3, 1, 4, 1, 0],
+        [0, 1, 4, 1, 4], // 10
+        [0, 0, 4, 1, 4], // 9
+        [0, 1, 0, 1, 4], // 6
+        [2, 1, 5, 0, 4], // 12
+        [3, 1, 4, 1, 0], // 9
     ];
     let pre_trust = [0, 0, 0, 3, 7];
 

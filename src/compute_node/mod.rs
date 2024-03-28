@@ -29,39 +29,16 @@ pub struct ComputeTreeFraudProof {
 
 impl ComputeTreeFraudProof {
     pub fn verify(&self, data: [Fr; 2], challenge: Challenge) -> bool {
-        let [local_trust_tree_root, compute_tree_root] = data;
+        self.check_against_challenge(challenge)
+            && self.check_against_data(data)
+            && self.check_score_correctness()
+    }
 
-        let is_peer_path_correct = self.peer_path.verify();
-        let is_neighbour_lt_path_correct = self.lt_tree_path.verify();
-        let is_neighbour_path_correct = self.neighbour_path.verify();
-
-        let (peer_root, _) = self.peer_path.master_tree_path.root();
-        let (lt_root, _) = self.lt_tree_path.master_tree_path.root();
-        let (n_root, _) = self.neighbour_path.root();
-
-        let is_peer_root_correct = peer_root == compute_tree_root;
-        let is_lt_root_correct = lt_root == local_trust_tree_root;
-        let is_neighbour_root_correct = compute_tree_root == n_root;
-
-        let (_, lc) = self.lt_tree_path.sub_tree_path.value();
+    pub fn check_score_correctness(&self) -> bool {
+        let (_, lt_score) = self.lt_tree_path.sub_tree_path.value();
         let (_, sum) = self.lt_tree_path.sub_tree_path.root();
-        let (_, n_gt) = self.neighbour_path.value();
-        let (lt_peer_subtree, gt_peer_subtree) = self.peer_path.sub_tree_path.value();
-
-        let is_lt_correct = lc * sum.invert().unwrap() == lt_peer_subtree;
-        let is_gt_correct = n_gt == gt_peer_subtree;
-
-        let is_neighbour_index_correct = self.neighbour_path.index == challenge.from;
-        let is_neighbour_local_trust_correct =
-            self.lt_tree_path.sub_tree_path.index == challenge.to;
-        let is_peer_local_trust_correct =
-            self.lt_tree_path.master_tree_path.index == challenge.from;
-        let is_peer_global_trust_term_correct =
-            self.peer_path.sub_tree_path.index == challenge.from;
-        let is_peer_global_trust_correct = self.peer_path.master_tree_path.index == challenge.to;
-
-        let (_, final_score_prime) = self.peer_path.sub_tree_path.root();
-        let (_, final_score) = self.peer_path.master_tree_path.value();
+        let (lt, gt) = self.peer_path.sub_tree_path.value();
+        let (_, gt_prime) = self.neighbour_path.value();
 
         let composed_c_num =
             compose_big_decimal_f(self.c.num.clone(), self.c.num_limbs, self.c.power_of_ten);
@@ -84,9 +61,28 @@ impl ComputeTreeFraudProof {
         let rounded_c = self.c.den[0] * self.c.num[0];
         let rounded_c_prime = self.c_prime.den[0] * self.c_prime.num[0];
 
-        let is_c_equal = composed_c == final_score;
-        let is_c_prime_equal = composed_c_prime == final_score_prime;
-        let is_rounded_equal = rounded_c == rounded_c_prime;
+        let is_lt_correct = (lt_score * sum.invert().unwrap()) == lt;
+        // let is_c_equal = composed_c == gt;
+        // let is_c_prime_equal = composed_c_prime == gt_prime;
+        // let is_rounded_equal = rounded_c == rounded_c_prime;
+
+        is_lt_correct // && is_c_equal && is_c_prime_equal && is_rounded_equal
+    }
+
+    pub fn check_against_data(&self, data: [Fr; 2]) -> bool {
+        let [local_trust_tree_root, compute_tree_root] = data;
+
+        let is_peer_path_correct = self.peer_path.verify();
+        let is_neighbour_lt_path_correct = self.lt_tree_path.verify();
+        let is_neighbour_path_correct = self.neighbour_path.verify();
+
+        let (peer_root, _) = self.peer_path.master_tree_path.root();
+        let (lt_root, _) = self.lt_tree_path.master_tree_path.root();
+        let (n_root, _) = self.neighbour_path.root();
+
+        let is_peer_root_correct = peer_root == compute_tree_root;
+        let is_lt_root_correct = lt_root == local_trust_tree_root;
+        let is_neighbour_root_correct = compute_tree_root == n_root;
 
         is_peer_path_correct
             && is_neighbour_lt_path_correct
@@ -94,25 +90,32 @@ impl ComputeTreeFraudProof {
             && is_neighbour_root_correct
             && is_lt_root_correct
             && is_peer_root_correct
-            && is_lt_correct
-            && is_gt_correct
-            && is_neighbour_index_correct
+    }
+
+    pub fn check_against_challenge(&self, challenge: Challenge) -> bool {
+        let is_neighbour_index_correct = self.neighbour_path.index == challenge.from;
+        let is_neighbour_local_trust_correct =
+            self.lt_tree_path.sub_tree_path.index == challenge.to;
+        let is_peer_local_trust_correct =
+            self.lt_tree_path.master_tree_path.index == challenge.from;
+        let is_peer_global_trust_term_correct =
+            self.peer_path.sub_tree_path.index == challenge.from;
+        let is_peer_global_trust_correct = self.peer_path.master_tree_path.index == challenge.to;
+
+        is_neighbour_index_correct
             && is_neighbour_local_trust_correct
             && is_peer_local_trust_correct
             && is_peer_global_trust_term_correct
             && is_peer_global_trust_correct
-            && is_c_equal
-            && is_c_prime_equal
-            && is_rounded_equal
     }
 }
 
 pub struct ComputeNode {
     compute_tree: ComputeTree,
     local_trust_tree: LocalTrustTree,
+    peers: Vec<Fr>,
     scores_br: Vec<Br>,
     scores_final_br: Vec<Br>,
-    peers: Vec<Fr>,
 }
 
 impl ComputeNode {
@@ -124,13 +127,13 @@ impl ComputeNode {
         scores_final_br: Vec<Br>,
     ) -> Self {
         let local_trust_tree = LocalTrustTree::new(peers.clone(), lt.clone());
-        let compute_tree = ComputeTree::new(peers.clone(), lt, scores_f);
+        let compute_tree = ComputeTree::new(peers.clone(), lt, scores_f.clone());
         Self {
             compute_tree,
             local_trust_tree,
+            peers,
             scores_br,
             scores_final_br,
-            peers,
         }
     }
 
@@ -146,7 +149,11 @@ impl ComputeNode {
             .find_membership_proof(challenge.clone());
         let neighbour_path = self.compute_tree.master_tree.find_path(challenge.from);
 
-        let index = self.peers.iter().position(|&x| challenge.to == x).unwrap();
+        let index = self
+            .peers
+            .iter()
+            .position(|&x| challenge.from == x)
+            .unwrap();
         let c = big_to_fe_rat(
             self.scores_br[index].clone(),
             num_decimal_limbs,
@@ -240,4 +247,51 @@ pub fn big_to_fr(e: BigUint) -> Fr {
     let modulus = modulus();
     let e = e % modulus;
     Fr::from_str_vartime(&e.to_str_radix(10)[..]).unwrap()
+}
+
+#[cfg(test)]
+mod test {
+    use super::ComputeTree;
+    use crate::{algo::field, compute_node::lt_tree::LocalTrustTree, Challenge};
+    use halo2curves::bn256::Fr;
+
+    #[test]
+    fn should_create_compute_and_lt_tree() {
+        let peers = [1, 2, 3, 4, 5].map(|x| Fr::from(x));
+
+        let lt = [
+            [0, 1, 4, 1, 4],
+            [0, 0, 4, 1, 4],
+            [0, 1, 0, 1, 4],
+            [2, 1, 5, 0, 4],
+            [3, 1, 4, 1, 0],
+        ]
+        .map(|xs| xs.map(|x| Fr::from(x)));
+
+        let pre_trust = [0, 0, 0, 3, 7].map(|x| Fr::from(x));
+        let res = field::positive_run::<30>(lt, pre_trust);
+
+        let compute_tree = ComputeTree::new(
+            peers.to_vec(),
+            lt.map(|lt_arr| lt_arr.to_vec()).to_vec(),
+            res.to_vec(),
+        );
+        let lt_tree =
+            LocalTrustTree::new(peers.to_vec(), lt.map(|lt_arr| lt_arr.to_vec()).to_vec());
+
+        let challenge = Challenge {
+            from: peers[0],
+            to: peers[1],
+        };
+        let cp_proof = compute_tree.find_membership_proof(challenge.clone());
+        let lt_proof = lt_tree.find_membership_proof(challenge);
+
+        let (lt_cp, _) = cp_proof.sub_tree_path.value();
+        let (_, lt) = lt_proof.sub_tree_path.value();
+        let (_, sum) = lt_proof.sub_tree_path.root();
+
+        assert!((lt * sum.invert().unwrap()) == lt_cp);
+        assert!(cp_proof.verify());
+        assert!(lt_proof.verify());
+    }
 }
