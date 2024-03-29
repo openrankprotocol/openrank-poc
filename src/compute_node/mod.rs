@@ -58,15 +58,15 @@ impl ComputeTreeFraudProof {
 
         let composed_c = composed_c_num * composed_c_den.invert().unwrap();
         let composed_c_prime = composed_c_prime_num * composed_c_prime_den.invert().unwrap();
-        let rounded_c = self.c.den[0] * self.c.num[0];
-        let rounded_c_prime = self.c_prime.den[0] * self.c_prime.num[0];
+        let rounded_c = self.c.den.last().unwrap() * self.c.num.last().unwrap();
+        let rounded_c_prime = self.c_prime.den.last().unwrap() * self.c_prime.num.last().unwrap();
 
         let is_lt_correct = (lt_score * sum.invert().unwrap()) == lt;
-        // let is_c_equal = composed_c == gt;
-        // let is_c_prime_equal = composed_c_prime == gt_prime;
-        // let is_rounded_equal = rounded_c == rounded_c_prime;
+        let is_c_equal = composed_c == gt;
+        let is_c_prime_equal = composed_c_prime == gt_prime;
+        let is_rounded_equal = rounded_c == rounded_c_prime;
 
-        is_lt_correct // && is_c_equal && is_c_prime_equal && is_rounded_equal
+        is_lt_correct && is_c_equal && is_c_prime_equal && is_rounded_equal
     }
 
     pub fn check_against_data(&self, data: [Fr; 2]) -> bool {
@@ -140,8 +140,7 @@ impl ComputeNode {
     pub fn compute_fraud_proof(
         &self,
         challenge: Challenge,
-        num_decimal_limbs: usize,
-        power_of_ten: usize,
+        precision: usize,
     ) -> ComputeTreeFraudProof {
         let peer_path = self.compute_tree.find_membership_proof(challenge.clone());
         let lt_tree_path = self
@@ -154,16 +153,15 @@ impl ComputeNode {
             .iter()
             .position(|&x| challenge.from == x)
             .unwrap();
-        let c = big_to_fe_rat(
-            self.scores_br[index].clone(),
-            num_decimal_limbs,
-            power_of_ten,
-        );
-        let c_prime = big_to_fe_rat(
-            self.scores_final_br[index].clone(),
-            num_decimal_limbs,
-            power_of_ten,
-        );
+
+        let c_br = self.scores_br[index].clone();
+        let c_prime_br = self.scores_final_br[index].clone();
+        let lcm = c_br.denom().lcm(&c_prime_br.denom());
+        let c_numer = c_br.numer().clone() * (lcm.clone() / c_br.denom().clone());
+        let c_prime_numer = c_prime_br.numer() * (lcm.clone() / c_prime_br.denom());
+
+        let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
+        let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
 
         ComputeTreeFraudProof {
             peer_path,
@@ -190,26 +188,28 @@ pub struct BrDecomposed {
 }
 
 /// Converts a `BigRational` into scaled, decomposed numerator and denominator arrays of field elements.
-pub fn big_to_fe_rat(ratio: Br, num_decimal_limbs: usize, power_of_ten: usize) -> BrDecomposed {
-    let num = ratio.numer();
-    let den = ratio.denom();
-    let max_len = num_decimal_limbs * power_of_ten;
-    let bigger = num.max(den);
+pub fn big_to_fe_rat(num: BigUint, den: BigUint, precision: usize) -> BrDecomposed {
+    let num_den_diff = num.to_string().len() - den.to_string().len();
+    assert!(precision >= num_den_diff * 2);
+
+    let bigger = num.clone().max(den.clone());
     let dig_len = bigger.to_string().len();
-    let diff = max_len - dig_len;
+    let num_limbs = (dig_len / precision) + 1;
+    let new_len = num_limbs * precision;
+    let diff = new_len - dig_len;
 
     let scale = BigUint::from(10_u32).pow(diff as u32);
     let num_scaled = num * scale.clone();
     let den_scaled = den * scale;
 
-    let num_decomposed = decompose_big_decimal(num_scaled, num_decimal_limbs, power_of_ten);
-    let den_decomposed = decompose_big_decimal(den_scaled, num_decimal_limbs, power_of_ten);
+    let num_decomposed = decompose_big_decimal(num_scaled, num_limbs, precision);
+    let den_decomposed = decompose_big_decimal(den_scaled, num_limbs, precision);
 
     BrDecomposed {
         num: num_decomposed,
         den: den_decomposed,
-        num_limbs: num_decimal_limbs,
-        power_of_ten,
+        num_limbs,
+        power_of_ten: precision,
     }
 }
 
