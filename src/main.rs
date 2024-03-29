@@ -110,6 +110,6 @@ fn main() {
 
     let precision = 6;
     // The submitter posts a response to the challenge
-    let proof = compute_node.compute_fraud_proof(challenge, precision);
+    let proof = compute_node.compute_validity_proof(challenge, precision);
     sc.post_response(proof); // proof is also verified here
 }

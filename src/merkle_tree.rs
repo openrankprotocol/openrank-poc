@@ -229,6 +229,8 @@ where
     }
 
     /// Verify Multiplicative leaf path
+    /// Multiplicative leaf is the leaf where
+    /// the tuples are multiplied together before being added
     pub fn verify_mul(&self) -> bool {
         let bits = field_to_bits_vec(self.index);
         let mut is_satisfied = true;

@@ -13,8 +13,7 @@ use self::{
 mod compute_tree;
 mod lt_tree;
 
-// TODO: Rename to appropriate name
-pub struct ComputeTreeFraudProof {
+pub struct ComputeTreeValidityProof {
     // Peers Global Trust path
     peer_path: ComputeTreeMembershipProof,
     // Neighbours Global Trust path
@@ -27,19 +26,21 @@ pub struct ComputeTreeFraudProof {
     c_prime: BrDecomposed,
 }
 
-impl ComputeTreeFraudProof {
+impl ComputeTreeValidityProof {
     pub fn verify(&self, data: [Fr; 2], challenge: Challenge) -> bool {
         self.check_against_challenge(challenge)
             && self.check_against_data(data)
             && self.check_score_correctness()
     }
 
+    // Checking if the score has converged for a peer specified in Challenge
     pub fn check_score_correctness(&self) -> bool {
         let (_, lt_score) = self.lt_tree_path.sub_tree_path.value();
         let (_, sum) = self.lt_tree_path.sub_tree_path.root();
         let (lt, gt) = self.peer_path.sub_tree_path.value();
         let (_, gt_prime) = self.neighbour_path.value();
 
+        // First, we compose the decomposed rational numbers
         let composed_c_num =
             compose_big_decimal_f(self.c.num.clone(), self.c.num_limbs, self.c.power_of_ten);
         let composed_c_den =
@@ -56,22 +57,29 @@ impl ComputeTreeFraudProof {
             self.c_prime.power_of_ten,
         );
 
+        // Then we check the correctness of local trust score
+        let is_lt_correct = (lt_score * sum.invert().unwrap()) == lt;
+
+        // Then we check the equality with the field elements corresponding to each score separately
         let composed_c = composed_c_num * composed_c_den.invert().unwrap();
         let composed_c_prime = composed_c_prime_num * composed_c_prime_den.invert().unwrap();
-        let rounded_c = self.c.den.last().unwrap() * self.c.num.last().unwrap();
-        let rounded_c_prime = self.c_prime.den.last().unwrap() * self.c_prime.num.last().unwrap();
-
-        let is_lt_correct = (lt_score * sum.invert().unwrap()) == lt;
         let is_c_equal = composed_c == gt;
         let is_c_prime_equal = composed_c_prime == gt_prime;
+
+        // Then we check the upper most chunks equality
+        // This means that we are rounding the floating point number to just a few most significat digits
+        let rounded_c = self.c.den.last().unwrap() * self.c.num.last().unwrap();
+        let rounded_c_prime = self.c_prime.den.last().unwrap() * self.c_prime.num.last().unwrap();
         let is_rounded_equal = rounded_c == rounded_c_prime;
 
         is_lt_correct && is_c_equal && is_c_prime_equal && is_rounded_equal
     }
 
+    // Checking if the proof merkle paths and root are correct
     pub fn check_against_data(&self, data: [Fr; 2]) -> bool {
         let [local_trust_tree_root, compute_tree_root] = data;
 
+        // Check if merkle paths are correct
         let is_peer_path_correct = self.peer_path.verify();
         let is_neighbour_lt_path_correct = self.lt_tree_path.verify();
         let is_neighbour_path_correct = self.neighbour_path.verify();
@@ -80,9 +88,10 @@ impl ComputeTreeFraudProof {
         let (lt_root, _) = self.lt_tree_path.master_tree_path.root();
         let (n_root, _) = self.neighbour_path.root();
 
+        // Check if merkle tree roots are matching the commited roots
         let is_peer_root_correct = peer_root == compute_tree_root;
         let is_lt_root_correct = lt_root == local_trust_tree_root;
-        let is_neighbour_root_correct = compute_tree_root == n_root;
+        let is_neighbour_root_correct = n_root == compute_tree_root;
 
         is_peer_path_correct
             && is_neighbour_lt_path_correct
@@ -92,21 +101,19 @@ impl ComputeTreeFraudProof {
             && is_peer_root_correct
     }
 
+    // Check if the proof path indices are matching the challenge
     pub fn check_against_challenge(&self, challenge: Challenge) -> bool {
+        let is_peer_lt_correct = self.lt_tree_path.master_tree_path.index == challenge.from;
+        let is_neighbour_lt_correct = self.lt_tree_path.sub_tree_path.index == challenge.to;
+        let is_peer_gt_term_correct = self.peer_path.sub_tree_path.index == challenge.from;
+        let is_peer_gt_correct = self.peer_path.master_tree_path.index == challenge.to;
         let is_neighbour_index_correct = self.neighbour_path.index == challenge.from;
-        let is_neighbour_local_trust_correct =
-            self.lt_tree_path.sub_tree_path.index == challenge.to;
-        let is_peer_local_trust_correct =
-            self.lt_tree_path.master_tree_path.index == challenge.from;
-        let is_peer_global_trust_term_correct =
-            self.peer_path.sub_tree_path.index == challenge.from;
-        let is_peer_global_trust_correct = self.peer_path.master_tree_path.index == challenge.to;
 
-        is_neighbour_index_correct
-            && is_neighbour_local_trust_correct
-            && is_peer_local_trust_correct
-            && is_peer_global_trust_term_correct
-            && is_peer_global_trust_correct
+        is_peer_lt_correct
+            && is_neighbour_lt_correct
+            && is_peer_gt_term_correct
+            && is_peer_gt_correct
+            && is_neighbour_index_correct
     }
 }
 
@@ -137,11 +144,12 @@ impl ComputeNode {
         }
     }
 
-    pub fn compute_fraud_proof(
+    pub fn compute_validity_proof(
         &self,
         challenge: Challenge,
         precision: usize,
-    ) -> ComputeTreeFraudProof {
+    ) -> ComputeTreeValidityProof {
+        // Construct merkle path for LT Tree and Compute Tree
         let peer_path = self.compute_tree.find_membership_proof(challenge.clone());
         let lt_tree_path = self
             .local_trust_tree
@@ -154,16 +162,19 @@ impl ComputeNode {
             .position(|&x| challenge.from == x)
             .unwrap();
 
+        // Find lowest common multiplier for 2 scores (rational numbers)
+        // To find the common grond needed for comparison
         let c_br = self.scores_br[index].clone();
         let c_prime_br = self.scores_final_br[index].clone();
         let lcm = c_br.denom().lcm(&c_prime_br.denom());
         let c_numer = c_br.numer().clone() * (lcm.clone() / c_br.denom().clone());
         let c_prime_numer = c_prime_br.numer() * (lcm.clone() / c_prime_br.denom());
 
+        // Decompose the numerators into limbs with each limb having 'precision' amount of digits
         let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
         let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
 
-        ComputeTreeFraudProof {
+        ComputeTreeValidityProof {
             peer_path,
             lt_tree_path,
             neighbour_path,

@@ -1,11 +1,11 @@
 use halo2curves::bn256::Fr;
 
-use crate::{compute_node::ComputeTreeFraudProof, Challenge};
+use crate::{compute_node::ComputeTreeValidityProof, Challenge};
 
 pub struct SmartContract {
     data: Option<[Fr; 2]>,
     challenge: Option<Challenge>,
-    response: Option<ComputeTreeFraudProof>,
+    response: Option<ComputeTreeValidityProof>,
 }
 
 impl SmartContract {
@@ -25,7 +25,7 @@ impl SmartContract {
         self.challenge = Some(challenge);
     }
 
-    pub fn post_response(&mut self, response: ComputeTreeFraudProof) {
+    pub fn post_response(&mut self, response: ComputeTreeValidityProof) {
         self.response = Some(response);
         self.verify_fraud_proof();
     }
