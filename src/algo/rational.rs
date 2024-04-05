@@ -19,7 +19,7 @@ fn validate_lt(lt: [[BigUint; NUM_NEIGHBOURS]; NUM_NEIGHBOURS]) {
     }
 }
 
-fn normalise(lt_vec: [BigUint; NUM_NEIGHBOURS]) -> [Br; NUM_NEIGHBOURS] {
+pub fn normalise(lt_vec: [BigUint; NUM_NEIGHBOURS]) -> [Br; NUM_NEIGHBOURS] {
     let sum: BigUint = lt_vec.clone().into_iter().sum();
     lt_vec.map(|x| Br::new(x, sum.clone()))
 }

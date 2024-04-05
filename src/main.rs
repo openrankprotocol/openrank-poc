@@ -1,6 +1,6 @@
 use algo::{
     field,
-    rational::{self, Br},
+    rational::{self, normalise, Br},
 };
 use compute_node::ComputeNode;
 use halo2curves::{
@@ -8,11 +8,16 @@ use halo2curves::{
     ff::{Field, PrimeField},
 };
 use num_bigint::BigUint;
+use num_integer::Integer;
+use num_traits::Zero;
 use num_traits::{FromPrimitive, One};
 use params::poseidon_bn254_5x5::Params;
 use poseidon::Poseidon;
 use rand::thread_rng;
 use settlement::SmartContract;
+use std::array::from_fn;
+
+use crate::compute_node::decompose_big_decimal;
 
 mod algo;
 mod compute_node;
@@ -53,7 +58,10 @@ pub fn field_to_bits_vec(num: Fr) -> Vec<bool> {
     sliced_bits
 }
 
-fn compute_node_work(peers: [Fr; 5], lt: [[u64; 5]; 5], pre_trust: [u64; 5]) -> ComputeNode {
+fn compute_node_work(
+    lt: [[u64; 5]; 5],
+    pre_trust: [u64; 5],
+) -> ([[Fr; 5]; 5], [Fr; 5], [Br; 5], [Br; 5]) {
     let lt_f = lt.map(|lt_arr| lt_arr.map(|score| Fr::from(score)));
     let pre_trust_f = pre_trust.map(|score| Fr::from(score));
     let lt_br = lt.map(|lt_arr| lt_arr.map(|score| BigUint::from_u64(score).unwrap()));
@@ -62,19 +70,12 @@ fn compute_node_work(peers: [Fr; 5], lt: [[u64; 5]; 5], pre_trust: [u64; 5]) -> 
 
     let res_f = field::positive_run::<30>(lt_f.clone(), pre_trust_f);
     let res_br = rational::positive_run::<30>(lt_br.clone(), seed_br.clone());
-
     let res_final_br = rational::positive_run::<1>(lt_br, res_br.clone());
 
-    ComputeNode::new(
-        peers.to_vec(),
-        lt_f.map(|lt_arr| lt_arr.to_vec()).to_vec(),
-        res_f.to_vec(),
-        res_br.to_vec(),
-        res_final_br.to_vec(),
-    )
+    (lt_f, res_f, res_br, res_final_br)
 }
 
-fn main() {
+fn optimisitic_interactive() {
     let mut rng = thread_rng();
     let peers = [
         Fr::random(&mut rng),
@@ -95,7 +96,14 @@ fn main() {
     let mut sc = SmartContract::new();
 
     // Compute node does the work
-    let compute_node = compute_node_work(peers, lt, pre_trust);
+    let (lt_f, res_f, res_br, res_final_br) = compute_node_work(lt, pre_trust);
+    let compute_node = ComputeNode::new(
+        peers.to_vec(),
+        lt_f.map(|lt_arr| lt_arr.to_vec()).to_vec(),
+        res_f.to_vec(),
+        res_br.to_vec(),
+        res_final_br.to_vec(),
+    );
 
     // Compute node sumbits data to a smart contract
     let sc_data = compute_node.sc_data();
@@ -112,4 +120,45 @@ fn main() {
     // The submitter posts a response to the challenge
     let proof = compute_node.compute_validity_proof(challenge, precision);
     sc.post_response(proof); // proof is also verified here
+}
+
+fn pessimistic() {
+    let lt = [
+        [0, 1, 4, 1, 4], // 10
+        [0, 0, 4, 1, 4], // 9
+        [0, 1, 0, 1, 4], // 6
+        [2, 1, 5, 0, 4], // 12
+        [3, 1, 4, 1, 0], // 9
+    ];
+    let pre_trust = [0, 0, 0, 3, 7];
+
+    // Compute node does the work
+    let (_, _, res_br, _) = compute_node_work(lt.clone(), pre_trust);
+
+    let mut normalised_lt: [[Br; 5]; 5] = from_fn(|_| from_fn(|_| Br::zero()));
+    for i in 0..5 {
+        normalised_lt[i] = normalise(lt[i].map(|score| BigUint::from_u64(score).unwrap()));
+    }
+
+    let target_peer_id = 1;
+    let mut new_s = Br::zero();
+    for j in 0..5 {
+        new_s += normalised_lt[j][target_peer_id].clone() * res_br[j].clone();
+    }
+
+    let prev_s = res_br[target_peer_id].clone();
+
+    let lcm = prev_s.denom().lcm(&new_s.denom());
+    let c_numer = prev_s.numer().clone() * (lcm.clone() / prev_s.denom().clone());
+    let c_prime_numer = new_s.numer() * (lcm.clone() / new_s.denom());
+
+    let scale = BigUint::from(10usize).pow(46);
+    let c_numer_reduced = c_numer.div_floor(&scale);
+    let c_prime_numer_reduced = c_prime_numer.div_floor(&scale);
+
+    assert_eq!(c_numer_reduced, c_prime_numer_reduced);
+}
+
+fn main() {
+    pessimistic();
 }
