@@ -79,7 +79,7 @@ fn compute_node_work(
     (lt_f, res_f, res_br, res_final_br)
 }
 
-fn optimisitic_interactive() {
+fn optimisitic_interactive_positive() {
     let mut rng = thread_rng();
     let peers = [
         Fr::random(&mut rng),
@@ -135,7 +135,66 @@ fn optimisitic_interactive() {
     sc.post_response(validity_proof, consistency_proof); // proof is also verified here
 }
 
-fn pessimistic() {
+fn optimisitic_interactive_negative() {
+    let mut rng = thread_rng();
+    let peers = [
+        Fr::random(&mut rng),
+        Fr::random(&mut rng),
+        Fr::random(&mut rng),
+        Fr::random(&mut rng),
+        Fr::random(&mut rng),
+    ];
+    let lt = [
+        [0, 1, 4, 1, 4], // 10
+        [0, 0, 4, 1, 4], // 9
+        [0, 1, 0, 1, 4], // 6
+        [2, 1, 5, 0, 4], // 12
+        [3, 1, 4, 1, 0], // 9
+    ];
+    let pre_trust = [0, 0, 0, 3, 7];
+
+    let mut sc = SmartContract::new();
+
+    // Compute node does the work
+    let (lt_f, mut res_f, res_br, res_final_br) = compute_node_work(lt, pre_trust);
+
+    // Modify one score, make it invalid
+    res_f[1] = Fr::zero();
+    let compute_node = ComputeNode::new(
+        peers.to_vec(),
+        lt_f.map(|lt_arr| lt_arr.to_vec()).to_vec(),
+        res_f.to_vec(),
+        res_br.to_vec(),
+        res_final_br.to_vec(),
+    );
+
+    // Compute node sumbits data to a smart contract
+    let sc_data = compute_node.sc_data();
+    sc.post_data(sc_data);
+
+    // Challenger submits a challenge
+    let challenge_validity = Challenge {
+        from: peers[1], // wrong at the incoming arc from 'from'/peer[1]
+        to: peers[3],   // this peers score is wrong
+    };
+    let challange_consistency = ConsistencyChallenge {
+        target1: challenge_validity.clone(),
+        // Different location
+        target2: Challenge {
+            from: peers[1],
+            to: peers[4],
+        },
+    };
+    sc.post_challenge(challenge_validity.clone(), challange_consistency.clone());
+
+    let precision = 6;
+    // The submitter posts a response to the challenge
+    let validity_proof = compute_node.compute_validity_proof(challenge_validity, precision);
+    let consistency_proof = compute_node.compute_consistency_proof(challange_consistency);
+    sc.post_response(validity_proof, consistency_proof); // proof is also verified here
+}
+
+fn pessimistic_positive() {
     let lt = [
         [0, 1, 4, 1, 4], // 10
         [0, 0, 4, 1, 4], // 9
@@ -172,6 +231,46 @@ fn pessimistic() {
     assert_eq!(c_numer_reduced, c_prime_numer_reduced);
 }
 
+fn pessimistic_negative() {
+    let lt = [
+        [0, 1, 4, 1, 4], // 10
+        [0, 0, 4, 1, 4], // 9
+        [0, 1, 0, 1, 4], // 6
+        [2, 1, 5, 0, 4], // 12
+        [3, 1, 4, 1, 0], // 9
+    ];
+    let pre_trust = [0, 0, 0, 3, 7];
+
+    // Compute node does the work
+    let (_, _, mut res_br, _) = compute_node_work(lt.clone(), pre_trust);
+
+    let mut normalised_lt: [[Br; 5]; 5] = from_fn(|_| from_fn(|_| Br::zero()));
+    for i in 0..5 {
+        normalised_lt[i] = normalise(lt[i].map(|score| BigUint::from_u64(score).unwrap()));
+    }
+
+    let target_peer_id = 1;
+    // Make the score for 'target_peer_id' invalid
+    res_br[target_peer_id] = Br::zero();
+
+    let mut new_s = Br::zero();
+    for j in 0..5 {
+        new_s += normalised_lt[j][target_peer_id].clone() * res_br[j].clone();
+    }
+
+    let prev_s = res_br[target_peer_id].clone();
+
+    let lcm = prev_s.denom().lcm(&new_s.denom());
+    let c_numer = prev_s.numer().clone() * (lcm.clone() / prev_s.denom().clone());
+    let c_prime_numer = new_s.numer() * (lcm.clone() / new_s.denom());
+
+    let scale = BigUint::from(10usize).pow(46);
+    let c_numer_reduced = c_numer.div_floor(&scale);
+    let c_prime_numer_reduced = c_prime_numer.div_floor(&scale);
+
+    assert_eq!(c_numer_reduced, c_prime_numer_reduced);
+}
+
 fn main() {
-    optimisitic_interactive();
+    pessimistic_negative();
 }
