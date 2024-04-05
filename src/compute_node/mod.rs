@@ -1,3 +1,4 @@
+use crate::ConsistencyChallenge;
 use crate::{algo::rational::Br, merkle_tree::Path, Challenge, Hasher};
 use halo2curves::ff::Field;
 use halo2curves::{bn256::Fr, ff::PrimeField};
@@ -12,6 +13,59 @@ use self::{
 
 mod compute_tree;
 mod lt_tree;
+
+pub struct ConsistencyProof {
+    // Peers Global Trust path
+    target1_path: ComputeTreeMembershipProof,
+    target2_path: ComputeTreeMembershipProof,
+}
+
+impl ConsistencyProof {
+    pub fn verify(&self, data: [Fr; 2], challenge: ConsistencyChallenge) -> bool {
+        self.verify_against_data(data)
+            && self.verify_against_challenge(challenge)
+            && self.check_score_consistency()
+    }
+
+    pub fn check_score_consistency(&self) -> bool {
+        let (_, score1) = self.target1_path.sub_tree_path.value();
+        let (_, score2) = self.target2_path.sub_tree_path.value();
+        let is_score_same = score1 == score2;
+
+        is_score_same
+    }
+
+    pub fn verify_against_data(&self, data: [Fr; 2]) -> bool {
+        let [_, compute_root] = data;
+
+        let is_valid1 = self.target1_path.verify();
+        let is_valid2 = self.target2_path.verify();
+
+        let (target1_root, _) = self.target1_path.master_tree_path.root();
+        let (target2_root, _) = self.target2_path.master_tree_path.root();
+
+        let is_target1_root_correct = target1_root == compute_root;
+        let is_target2_root_correct = target2_root == compute_root;
+
+        is_valid1 && is_valid2 && is_target1_root_correct && is_target2_root_correct
+    }
+
+    pub fn verify_against_challenge(&self, challenge: ConsistencyChallenge) -> bool {
+        let is_origin_same = challenge.target1.from == challenge.target2.from;
+        let is_target_different = challenge.target1.to != challenge.target2.to;
+        let is_from1_correct = self.target1_path.sub_tree_path.index == challenge.target1.from;
+        let is_from2_correct = self.target2_path.sub_tree_path.index == challenge.target2.from;
+        let is_to1_correct = self.target1_path.master_tree_path.index == challenge.target1.to;
+        let is_to2_correct = self.target2_path.master_tree_path.index == challenge.target2.to;
+
+        is_origin_same
+            && is_target_different
+            && is_from1_correct
+            && is_from2_correct
+            && is_to1_correct
+            && is_to2_correct
+    }
+}
 
 pub struct ComputeTreeValidityProof {
     // Peers Global Trust path
@@ -141,6 +195,15 @@ impl ComputeNode {
             peers,
             scores_br,
             scores_final_br,
+        }
+    }
+
+    pub fn compute_consistency_proof(&self, challenge: ConsistencyChallenge) -> ConsistencyProof {
+        let target1_path = self.compute_tree.find_membership_proof(challenge.target1);
+        let target2_path = self.compute_tree.find_membership_proof(challenge.target2);
+        ConsistencyProof {
+            target1_path,
+            target2_path,
         }
     }
 

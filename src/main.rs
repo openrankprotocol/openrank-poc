@@ -17,8 +17,6 @@ use rand::thread_rng;
 use settlement::SmartContract;
 use std::array::from_fn;
 
-use crate::compute_node::decompose_big_decimal;
-
 mod algo;
 mod compute_node;
 mod merkle_tree;
@@ -38,6 +36,12 @@ struct LinearCombination {
 pub struct Challenge {
     from: Fr,
     to: Fr,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConsistencyChallenge {
+    target1: Challenge,
+    target2: Challenge,
 }
 
 /// Converts given bytes to the bits.
@@ -110,16 +114,25 @@ fn optimisitic_interactive() {
     sc.post_data(sc_data);
 
     // Challenger submits a challenge
-    let challenge = Challenge {
+    let challenge_validity = Challenge {
         from: peers[0], // wrong at the incoming arc from 'from'/peer[0]
-        to: peers[1],   // this peers score is wrong
+        to: peers[3],   // this peers score is wrong
     };
-    sc.post_challenge(challenge.clone());
+    let challange_consistency = ConsistencyChallenge {
+        target1: challenge_validity.clone(),
+        // Different location
+        target2: Challenge {
+            from: peers[0],
+            to: peers[4],
+        },
+    };
+    sc.post_challenge(challenge_validity.clone(), challange_consistency.clone());
 
     let precision = 6;
     // The submitter posts a response to the challenge
-    let proof = compute_node.compute_validity_proof(challenge, precision);
-    sc.post_response(proof); // proof is also verified here
+    let validity_proof = compute_node.compute_validity_proof(challenge_validity, precision);
+    let consistency_proof = compute_node.compute_consistency_proof(challange_consistency);
+    sc.post_response(validity_proof, consistency_proof); // proof is also verified here
 }
 
 fn pessimistic() {
@@ -160,5 +173,5 @@ fn pessimistic() {
 }
 
 fn main() {
-    pessimistic();
+    optimisitic_interactive();
 }
