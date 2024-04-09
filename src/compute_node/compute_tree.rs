@@ -110,7 +110,7 @@ impl ComputeTree {
 #[cfg(test)]
 mod test {
     use super::ComputeTree;
-    use crate::{algo::field, Challenge};
+    use crate::{algo::et_field, Challenge};
     use halo2curves::bn256::Fr;
 
     #[test]
@@ -127,7 +127,7 @@ mod test {
         .map(|xs| xs.map(|x| Fr::from(x)));
 
         let pre_trust = [0, 0, 0, 3, 7].map(|x| Fr::from(x));
-        let res = field::positive_run::<30>(lt, pre_trust);
+        let res = et_field::positive_run::<30>(lt, pre_trust);
 
         let compute_tree = ComputeTree::new(
             peers.to_vec(),

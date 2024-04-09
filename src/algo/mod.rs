@@ -1,2 +1,4 @@
-pub mod field;
-pub mod rational;
+pub mod et_field;
+pub mod et_rational;
+pub mod h_and_a_field;
+pub mod h_and_a_rational;

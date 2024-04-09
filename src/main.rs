@@ -1,6 +1,6 @@
 use algo::{
-    field,
-    rational::{self, normalise, Br},
+    et_field,
+    et_rational::{self, normalise, Br},
 };
 use compute_node::ComputeNode;
 use halo2curves::{
@@ -72,9 +72,9 @@ fn compute_node_work(
     let pre_trust_br = pre_trust.map(|score| BigUint::from_u64(score).unwrap());
     let seed_br = pre_trust_br.clone().map(|x| Br::new(x, BigUint::one()));
 
-    let res_f = field::positive_run::<30>(lt_f.clone(), pre_trust_f);
-    let res_br = rational::positive_run::<30>(lt_br.clone(), seed_br.clone());
-    let res_final_br = rational::positive_run::<1>(lt_br, res_br.clone());
+    let res_f = et_field::positive_run::<30>(lt_f.clone(), pre_trust_f);
+    let res_br = et_rational::positive_run::<30>(lt_br.clone(), seed_br.clone());
+    let res_final_br = et_rational::positive_run::<1>(lt_br, res_br.clone());
 
     (lt_f, res_f, res_br, res_final_br)
 }
