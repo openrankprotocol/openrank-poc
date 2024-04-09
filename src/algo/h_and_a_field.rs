@@ -25,9 +25,8 @@ fn normalise(lt_vec: [Fr; NUM_NEIGHBOURS]) -> [Fr; NUM_NEIGHBOURS] {
 }
 
 const NUM_NEIGHBOURS: usize = 5;
-const NUM_ITER: usize = 20;
 
-fn run(
+pub fn run<const NUM_ITER: usize>(
     am: [[Fr; NUM_NEIGHBOURS]; NUM_NEIGHBOURS],
     initial_state_hubs: [Fr; NUM_NEIGHBOURS],
     initial_state_auth: [Fr; NUM_NEIGHBOURS],
@@ -89,5 +88,5 @@ pub fn run_job() {
 
     initial_state_hubs = normalise(initial_state_hubs);
     initial_state_auth = normalise(initial_state_auth);
-    run(adjacency_matrix, initial_state_hubs, initial_state_auth);
+    run::<30>(adjacency_matrix, initial_state_hubs, initial_state_auth);
 }

@@ -4,7 +4,8 @@ use halo2curves::bn256::Fr;
 
 use crate::{
     merkle_tree::{Path, SparseMerkleTree},
-    Challenge, Hasher,
+    systems::optimistic::Challenge,
+    Hasher,
 };
 
 pub struct ComputeTreeMembershipProof {
@@ -110,7 +111,7 @@ impl ComputeTree {
 #[cfg(test)]
 mod test {
     use super::ComputeTree;
-    use crate::{algo::et_field, Challenge};
+    use crate::{algo::et_field, systems::optimistic::Challenge};
     use halo2curves::bn256::Fr;
 
     #[test]

@@ -27,15 +27,14 @@ pub fn normalise_sqrt<const N: usize>(vector: [Br; N]) -> [Br; N] {
     })
 }
 
-pub fn normalise(lt_vec: [BigUint; NUM_NEIGHBOURS]) -> [Br; NUM_NEIGHBOURS] {
-    let sum: BigUint = lt_vec.clone().into_iter().sum();
-    lt_vec.map(|x| Br::new(x, sum.clone()))
+pub fn normalise(scores: [BigUint; NUM_NEIGHBOURS]) -> [Br; NUM_NEIGHBOURS] {
+    let sum: BigUint = scores.clone().into_iter().sum();
+    scores.map(|x| Br::new(x, sum.clone()))
 }
 
 const NUM_NEIGHBOURS: usize = 5;
-const NUM_ITER: usize = 20;
 
-fn run(
+pub fn run<const NUM_ITER: usize>(
     am: [[BigUint; NUM_NEIGHBOURS]; NUM_NEIGHBOURS],
     initial_state_hubs: [Br; NUM_NEIGHBOURS],
     initial_state_auth: [Br; NUM_NEIGHBOURS],
@@ -128,5 +127,5 @@ pub fn run_job() {
 
     let initial_state_hubs = normalise(initial_state_hubs);
     let initial_state_auth = normalise(initial_state_auth);
-    run(adjacency_matrix, initial_state_hubs, initial_state_auth);
+    run::<30>(adjacency_matrix, initial_state_hubs, initial_state_auth);
 }

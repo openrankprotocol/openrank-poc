@@ -1,5 +1,5 @@
-use crate::ConsistencyChallenge;
-use crate::{algo::et_rational::Br, merkle_tree::Path, Challenge, Hasher};
+use crate::systems::optimistic::{Challenge, ConsistencyChallenge};
+use crate::{algo::et_rational::Br, merkle_tree::Path, Hasher};
 use halo2curves::ff::Field;
 use halo2curves::{bn256::Fr, ff::PrimeField};
 use num_bigint::BigUint;
@@ -326,7 +326,9 @@ pub fn big_to_fr(e: BigUint) -> Fr {
 #[cfg(test)]
 mod test {
     use super::ComputeTree;
-    use crate::{algo::et_field, compute_node::lt_tree::LocalTrustTree, Challenge};
+    use crate::{
+        algo::et_field, compute_node::lt_tree::LocalTrustTree, systems::optimistic::Challenge,
+    };
     use halo2curves::bn256::Fr;
 
     #[test]

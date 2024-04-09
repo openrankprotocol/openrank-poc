@@ -3,8 +3,15 @@ use std::collections::HashMap;
 
 use crate::{
     merkle_tree::{Path, SparseMerkleTree},
-    Challenge, Hasher, LinearCombination,
+    systems::optimistic::Challenge,
+    Hasher,
 };
+
+struct LinearCombination {
+    from: Fr,
+    to: Fr,
+    sum_of_weights: Fr,
+}
 
 pub struct LocalTrustTreeMembershipProof {
     // Proof of membership for Master Tree
@@ -102,8 +109,9 @@ impl LocalTrustTree {
 
 #[cfg(test)]
 mod test {
+    use crate::systems::optimistic::Challenge;
+
     use super::LocalTrustTree;
-    use crate::Challenge;
     use halo2curves::bn256::Fr;
 
     #[test]

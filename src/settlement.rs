@@ -2,7 +2,7 @@ use halo2curves::bn256::Fr;
 
 use crate::{
     compute_node::{ComputeTreeValidityProof, ConsistencyProof},
-    Challenge, ConsistencyChallenge,
+    systems::optimistic::{Challenge, ConsistencyChallenge},
 };
 
 pub struct SmartContract {

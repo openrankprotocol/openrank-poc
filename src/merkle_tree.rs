@@ -1,7 +1,7 @@
 use halo2curves::{bn256::Fr, ff::PrimeField};
 use std::{collections::HashMap, marker::PhantomData};
 
-use crate::{field_to_bits_vec, poseidon::Hasher};
+use crate::{poseidon::Hasher, systems::field_to_bits_vec};
 
 const WIDTH: usize = 5;
 
