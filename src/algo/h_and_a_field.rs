@@ -19,9 +19,9 @@ pub fn normalise_sqrt<const N: usize>(vector: [Fr; N]) -> [Fr; N] {
     vector.map(|x| x * sum.sqrt().unwrap().invert().unwrap())
 }
 
-fn normalise(lt_vec: [Fr; NUM_NEIGHBOURS]) -> [Fr; NUM_NEIGHBOURS] {
-    let sum: Fr = lt_vec.iter().sum();
-    lt_vec.map(|x| x * sum.invert().unwrap())
+pub fn normalise(vector: [Fr; NUM_NEIGHBOURS]) -> [Fr; NUM_NEIGHBOURS] {
+    let sum: Fr = vector.iter().sum();
+    vector.map(|x| x * sum.invert().unwrap())
 }
 
 const NUM_NEIGHBOURS: usize = 5;

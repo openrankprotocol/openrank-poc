@@ -5,8 +5,7 @@ use num_traits::{FromPrimitive, One};
 use crate::algo::{
     et_field,
     et_rational::{self, Br},
-    h_and_a_field,
-    h_and_a_rational::{self, normalise},
+    h_and_a_float, h_and_a_rational,
 };
 
 pub mod optimistic;
@@ -54,24 +53,46 @@ pub fn compute_node_ha_work(
     initial_state_auth: [u64; 5],
 ) -> (
     [[Fr; 5]; 5],
+    [[BigUint; 5]; 5],
     ([Fr; 5], [Fr; 5]),
     ([Br; 5], [Br; 5]),
     ([Br; 5], [Br; 5]),
 ) {
     let am_f = am.map(|xs| xs.map(|x| Fr::from(x)));
-    let initial_state_hubs_f = initial_state_hubs.map(|x| Fr::from(x));
-    let initial_state_auth_f = initial_state_auth.map(|x| Fr::from(x));
 
     let am_bn = am.map(|xs| xs.map(|x| BigUint::from(x)));
     let initial_state_hubs_bn = initial_state_hubs.map(|x| BigUint::from(x));
     let initial_state_auth_bn = initial_state_auth.map(|x| BigUint::from(x));
 
-    let i_s_hubs_br = normalise(initial_state_hubs_bn);
-    let i_s_auth_br = normalise(initial_state_auth_bn);
+    let initial_state_hubs_br = h_and_a_rational::normalise(initial_state_hubs_bn);
+    let initial_state_auth_br = h_and_a_rational::normalise(initial_state_auth_bn);
 
-    let res_f = h_and_a_field::run::<30>(am_f, initial_state_hubs_f, initial_state_auth_f);
-    let (f_s_hubs, f_s_auth) = h_and_a_rational::run::<30>(am_bn.clone(), i_s_hubs_br, i_s_auth_br);
-    let res_final_br = h_and_a_rational::run::<1>(am_bn, f_s_hubs.clone(), f_s_auth.clone());
+    let am_fl = am.map(|xs| xs.map(|x| x as f32));
+    let initial_state_hubs_fl = initial_state_hubs.map(|x| x as f32);
+    let initial_state_auth_fl = initial_state_auth.map(|x| x as f32);
 
-    (am_f, res_f, (f_s_hubs, f_s_auth), res_final_br)
+    let initial_state_hubs_fl = h_and_a_float::normalise(initial_state_hubs_fl);
+    let initial_state_auth_fl = h_and_a_float::normalise(initial_state_auth_fl);
+
+    let (scores_hubs_fl, scores_auth_fl) =
+        h_and_a_float::run::<30>(am_fl, initial_state_hubs_fl, initial_state_auth_fl);
+    let (scores_hubs_br, scores_auth_br) =
+        h_and_a_rational::run::<30>(am_bn.clone(), initial_state_hubs_br, initial_state_auth_br);
+    let (final_scores_hubs, final_scores_auth) = h_and_a_rational::run::<1>(
+        am_bn.clone(),
+        scores_hubs_br.clone(),
+        scores_auth_br.clone(),
+    );
+
+    const SCALE: f32 = 1000000000.0;
+    let scores_hubs_f = scores_hubs_fl.map(|x| Fr::from_u128((x * SCALE) as u128));
+    let scores_auth_f = scores_auth_fl.map(|x| Fr::from_u128((x * SCALE) as u128));
+
+    (
+        am_f,
+        am_bn,
+        (scores_hubs_f, scores_auth_f),
+        (scores_hubs_br, scores_auth_br),
+        (final_scores_hubs, final_scores_auth),
+    )
 }
