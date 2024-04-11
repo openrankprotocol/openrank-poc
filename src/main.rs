@@ -22,5 +22,7 @@ fn main() {
 
     // Hubs And Authorities pessimistic
     // ha_pessimistic();
-    ha_pessimistic_invalid();
+    // ha_pessimistic_invalid();
+
+    // Hubs And Authorities optimistic
 }

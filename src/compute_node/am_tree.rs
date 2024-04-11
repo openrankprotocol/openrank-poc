@@ -14,14 +14,14 @@ struct LinearCombination {
     sum_of_weights: Fr,
 }
 
-pub struct LocalTrustTreeMembershipProof {
+pub struct AmTreeMembershipProof {
     // Proof of membership for Master Tree
     pub(crate) master_tree_path: Path<Hasher>,
     // Proof of membership for Sub Tree
     pub(crate) sub_tree_path: Path<Hasher>,
 }
 
-impl LocalTrustTreeMembershipProof {
+impl AmTreeMembershipProof {
     pub fn verify(&self) -> bool {
         let is_root_correct = self.master_tree_path.verify() && self.sub_tree_path.verify();
         let is_link_correct = self.master_tree_path.value() == self.sub_tree_path.root();
@@ -29,15 +29,15 @@ impl LocalTrustTreeMembershipProof {
     }
 }
 
-pub struct LocalTrustTree {
+pub struct AdjacencyMatrixTree {
     // Master Tree that contains every peers sub tree
     pub(crate) master_tree: SparseMerkleTree<Hasher>,
-    // Each peer has a separate sub tree, where the root will contain the sum of outgoing local scores
+    // Each peer has a separate sub tree, where the root will contain the sum of outgoing arcs
     pub(crate) sub_trees: HashMap<Fr, SparseMerkleTree<Hasher>>,
 }
 
-impl LocalTrustTree {
-    pub fn new(peers: Vec<Fr>, lt: Vec<Vec<Fr>>) -> Self {
+impl AdjacencyMatrixTree {
+    pub fn new(peers: Vec<Fr>, am: Vec<Vec<Fr>>) -> Self {
         let mut master_lt_tree_leaves = Vec::new();
         let mut sub_tree_map = HashMap::new();
         for i in 0..peers.len() {
@@ -46,11 +46,11 @@ impl LocalTrustTree {
             let mut lcs = Vec::new();
             for j in 0..peers.len() {
                 let to = peers[j];
-                let lt = lt[i][j];
+                let am_item = am[i][j];
                 let lc = LinearCombination {
                     from,
                     to,
-                    sum_of_weights: lt,
+                    sum_of_weights: am_item,
                 };
                 lcs.push(lc);
             }
@@ -97,11 +97,11 @@ impl LocalTrustTree {
     }
 
     // Find membership proofs based on the challenge
-    pub fn find_membership_proof(&self, challenge: Challenge) -> LocalTrustTreeMembershipProof {
+    pub fn find_membership_proof(&self, challenge: Challenge) -> AmTreeMembershipProof {
         let sub_tree = self.sub_trees.get(&challenge.from).unwrap();
         let sub_tree_path = sub_tree.find_path(challenge.to);
         let master_tree_path = self.master_tree.find_path(challenge.from);
-        LocalTrustTreeMembershipProof {
+        AmTreeMembershipProof {
             master_tree_path,
             sub_tree_path,
         }
@@ -112,7 +112,7 @@ impl LocalTrustTree {
 mod test {
     use crate::systems::optimistic::Challenge;
 
-    use super::LocalTrustTree;
+    use super::AdjacencyMatrixTree;
     use halo2curves::bn256::Fr;
 
     #[test]
@@ -129,7 +129,7 @@ mod test {
         .map(|xs| xs.map(|x| Fr::from(x)));
 
         let lt_tree =
-            LocalTrustTree::new(peers.to_vec(), lt.map(|lt_arr| lt_arr.to_vec()).to_vec());
+            AdjacencyMatrixTree::new(peers.to_vec(), lt.map(|lt_arr| lt_arr.to_vec()).to_vec());
 
         let challenge = Challenge {
             from: peers[0],

@@ -8,13 +8,14 @@ use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::Num;
 
+use self::am_tree::AdjacencyMatrixTree;
 use self::{
+    am_tree::AmTreeMembershipProof,
     compute_tree::{ComputeTree, ComputeTreeMembershipProof},
-    lt_tree::{LocalTrustTree, LocalTrustTreeMembershipProof},
 };
 
+mod am_tree;
 mod compute_tree;
-mod lt_tree;
 
 type Hasher = Poseidon<5, Params>;
 
@@ -71,20 +72,20 @@ impl ConsistencyProof {
     }
 }
 
-pub struct ComputeTreeValidityProof {
+pub struct EtComputeTreeValidityProof {
     // Peers Global Trust path
     peer_path: ComputeTreeMembershipProof,
     // Neighbours Global Trust path
     neighbour_path: Path<Hasher>,
     // Neighbours local trust path
-    lt_tree_path: LocalTrustTreeMembershipProof,
+    lt_tree_path: AmTreeMembershipProof,
     // Claimed score
     c: BrDecomposed,
     // Calculated score
     c_prime: BrDecomposed,
 }
 
-impl ComputeTreeValidityProof {
+impl EtComputeTreeValidityProof {
     pub fn verify(&self, data: [Fr; 2], challenge: Challenge) -> bool {
         self.check_against_challenge(challenge)
             && self.check_against_data(data)
@@ -99,21 +100,13 @@ impl ComputeTreeValidityProof {
         let (_, gt_prime) = self.neighbour_path.value();
 
         // First, we compose the decomposed rational numbers
-        let composed_c_num =
-            compose_big_decimal_f(self.c.num.clone(), self.c.num_limbs, self.c.power_of_ten);
-        let composed_c_den =
-            compose_big_decimal_f(self.c.den.clone(), self.c.num_limbs, self.c.power_of_ten);
+        let composed_c_num = compose_big_decimal_f(self.c.num.clone(), self.c.power_of_ten);
+        let composed_c_den = compose_big_decimal_f(self.c.den.clone(), self.c.power_of_ten);
 
-        let composed_c_prime_num = compose_big_decimal_f(
-            self.c_prime.num.clone(),
-            self.c_prime.num_limbs,
-            self.c_prime.power_of_ten,
-        );
-        let composed_c_prime_den = compose_big_decimal_f(
-            self.c_prime.den.clone(),
-            self.c_prime.num_limbs,
-            self.c_prime.power_of_ten,
-        );
+        let composed_c_prime_num =
+            compose_big_decimal_f(self.c_prime.num.clone(), self.c_prime.power_of_ten);
+        let composed_c_prime_den =
+            compose_big_decimal_f(self.c_prime.den.clone(), self.c_prime.power_of_ten);
 
         // Then we check the correctness of local trust score
         let is_lt_correct = (lt_score * sum.invert().unwrap()) == lt;
@@ -175,15 +168,15 @@ impl ComputeTreeValidityProof {
     }
 }
 
-pub struct ComputeNode {
+pub struct EtComputeNode {
     compute_tree: ComputeTree,
-    local_trust_tree: LocalTrustTree,
+    local_trust_tree: AdjacencyMatrixTree,
     peers: Vec<Fr>,
     scores_br: Vec<Br>,
     scores_final_br: Vec<Br>,
 }
 
-impl ComputeNode {
+impl EtComputeNode {
     pub fn new(
         peers: Vec<Fr>,
         lt: Vec<Vec<Fr>>,
@@ -191,7 +184,7 @@ impl ComputeNode {
         scores_br: Vec<Br>,
         scores_final_br: Vec<Br>,
     ) -> Self {
-        let local_trust_tree = LocalTrustTree::new(peers.clone(), lt.clone());
+        let local_trust_tree = AdjacencyMatrixTree::new(peers.clone(), lt.clone());
         let compute_tree = ComputeTree::new(peers.clone(), lt, scores_f.clone());
         Self {
             compute_tree,
@@ -215,7 +208,7 @@ impl ComputeNode {
         &self,
         challenge: Challenge,
         precision: usize,
-    ) -> ComputeTreeValidityProof {
+    ) -> EtComputeTreeValidityProof {
         // Construct merkle path for LT Tree and Compute Tree
         let peer_path = self.compute_tree.find_membership_proof(challenge.clone());
         let lt_tree_path = self
@@ -241,7 +234,7 @@ impl ComputeNode {
         let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
         let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
 
-        ComputeTreeValidityProof {
+        EtComputeTreeValidityProof {
             peer_path,
             lt_tree_path,
             neighbour_path,
@@ -257,10 +250,182 @@ impl ComputeNode {
     }
 }
 
+pub struct HaComputeTreeValidityProof {
+    // Peers Global Trust path
+    peer_path: ComputeTreeMembershipProof,
+    // Neighbours Global Score path
+    neighbour_path: Path<Hasher>,
+    // Neighbours adjacency tree path
+    am_tree_path: AmTreeMembershipProof,
+    // Claimed score
+    c: BrDecomposed,
+    // Calculated score
+    c_prime: BrDecomposed,
+}
+
+pub struct HaComputeNode {
+    hubs_compute_tree: ComputeTree,
+    auth_compute_tree: ComputeTree,
+    ajacency_matrix_tree: AdjacencyMatrixTree,
+    peers: Vec<Fr>,
+    scores_hubs_br: Vec<Br>,
+    scores_auth_br: Vec<Br>,
+    scores_hubs_final_br: Vec<Br>,
+    scores_auth_final_br: Vec<Br>,
+}
+
+impl HaComputeNode {
+    pub fn new(
+        peers: Vec<Fr>,
+        am: Vec<Vec<Fr>>,
+        scores_hubs_f: Vec<Fr>,
+        scores_auth_f: Vec<Fr>,
+        scores_hubs_br: Vec<Br>,
+        scores_auth_br: Vec<Br>,
+        scores_hubs_final_br: Vec<Br>,
+        scores_auth_final_br: Vec<Br>,
+    ) -> Self {
+        let ajacency_matrix_tree = AdjacencyMatrixTree::new(peers.clone(), am.clone());
+        let hubs_compute_tree = ComputeTree::new(peers.clone(), am.clone(), scores_hubs_f.clone());
+        let auth_compute_tree = ComputeTree::new(peers.clone(), am, scores_auth_f.clone());
+        Self {
+            hubs_compute_tree,
+            auth_compute_tree,
+            ajacency_matrix_tree,
+            peers,
+            scores_hubs_br,
+            scores_auth_br,
+            scores_hubs_final_br,
+            scores_auth_final_br,
+        }
+    }
+
+    pub fn compute_hubs_consistency_proof(
+        &self,
+        challenge: ConsistencyChallenge,
+    ) -> ConsistencyProof {
+        let target1_path = self
+            .hubs_compute_tree
+            .find_membership_proof(challenge.target1);
+        let target2_path = self
+            .hubs_compute_tree
+            .find_membership_proof(challenge.target2);
+        ConsistencyProof {
+            target1_path,
+            target2_path,
+        }
+    }
+
+    pub fn compute_auth_consistency_proof(
+        &self,
+        challenge: ConsistencyChallenge,
+    ) -> ConsistencyProof {
+        let target1_path = self
+            .auth_compute_tree
+            .find_membership_proof(challenge.target1);
+        let target2_path = self
+            .auth_compute_tree
+            .find_membership_proof(challenge.target2);
+        ConsistencyProof {
+            target1_path,
+            target2_path,
+        }
+    }
+
+    pub fn compute_hubs_validity_proof(
+        &self,
+        challenge: Challenge,
+        precision: usize,
+    ) -> HaComputeTreeValidityProof {
+        // Construct merkle path for LT Tree and Compute Tree
+        let peer_path = self
+            .hubs_compute_tree
+            .find_membership_proof(challenge.clone());
+        let am_tree_path = self
+            .ajacency_matrix_tree
+            .find_membership_proof(challenge.clone());
+        let neighbour_path = self.auth_compute_tree.master_tree.find_path(challenge.from);
+
+        let index = self
+            .peers
+            .iter()
+            .position(|&x| challenge.from == x)
+            .unwrap();
+
+        // Find lowest common multiplier for 2 scores (rational numbers)
+        // To find the common grond needed for comparison
+        let c_br = self.scores_hubs_br[index].clone();
+        let c_prime_br = self.scores_hubs_final_br[index].clone();
+        let lcm = c_br.denom().lcm(&c_prime_br.denom());
+        let c_numer = c_br.numer().clone() * (lcm.clone() / c_br.denom().clone());
+        let c_prime_numer = c_prime_br.numer() * (lcm.clone() / c_prime_br.denom());
+
+        // Decompose the numerators into limbs with each limb having 'precision' amount of digits
+        let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
+        let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
+
+        HaComputeTreeValidityProof {
+            peer_path,
+            am_tree_path,
+            neighbour_path,
+            c,
+            c_prime,
+        }
+    }
+
+    pub fn compute_auth_validity_proof(
+        &self,
+        challenge: Challenge,
+        precision: usize,
+    ) -> HaComputeTreeValidityProof {
+        // Construct merkle path for LT Tree and Compute Tree
+        let peer_path = self
+            .auth_compute_tree
+            .find_membership_proof(challenge.clone());
+        let am_tree_path = self
+            .ajacency_matrix_tree
+            .find_membership_proof(challenge.clone());
+        let neighbour_path = self.hubs_compute_tree.master_tree.find_path(challenge.from);
+
+        let index = self
+            .peers
+            .iter()
+            .position(|&x| challenge.from == x)
+            .unwrap();
+
+        // Find lowest common multiplier for 2 scores (rational numbers)
+        // To find the common grond needed for comparison
+        let c_br = self.scores_auth_br[index].clone();
+        let c_prime_br = self.scores_auth_final_br[index].clone();
+        let lcm = c_br.denom().lcm(&c_prime_br.denom());
+        let c_numer = c_br.numer().clone() * (lcm.clone() / c_br.denom().clone());
+        let c_prime_numer = c_prime_br.numer() * (lcm.clone() / c_prime_br.denom());
+
+        // Decompose the numerators into limbs with each limb having 'precision' amount of digits
+        let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
+        let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
+
+        HaComputeTreeValidityProof {
+            peer_path,
+            am_tree_path,
+            neighbour_path,
+            c,
+            c_prime,
+        }
+    }
+
+    pub fn sc_data(&self) -> [Fr; 3] {
+        let am_root = self.ajacency_matrix_tree.master_tree.root().0;
+        let hubs_compute_root = self.hubs_compute_tree.master_tree.root().0;
+        let auth_compute_root = self.auth_compute_tree.master_tree.root().0;
+        [am_root, hubs_compute_root, auth_compute_root]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BrDecomposed {
-    num: Vec<Fr>,
-    den: Vec<Fr>,
+    pub(crate) num: Vec<Fr>,
+    pub(crate) den: Vec<Fr>,
     num_limbs: usize,
     power_of_ten: usize,
 }
@@ -304,11 +469,11 @@ pub fn decompose_big_decimal(mut e: BigUint, num_limbs: usize, power_of_ten: usi
 }
 
 /// Returns `limbs` by decomposing [`BigUint`].
-pub fn compose_big_decimal_f(mut limbs: Vec<Fr>, num_limbs: usize, power_of_ten: usize) -> Fr {
+pub fn compose_big_decimal_f(mut limbs: Vec<Fr>, power_of_ten: usize) -> Fr {
     let scale = Fr::from_u128(10).pow([power_of_ten as u64]);
     limbs.reverse();
     let mut val = limbs[0];
-    for i in 1..num_limbs {
+    for i in 1..limbs.len() {
         val *= scale;
         val += limbs[i];
     }
@@ -331,7 +496,7 @@ pub fn big_to_fr(e: BigUint) -> Fr {
 mod test {
     use super::ComputeTree;
     use crate::{
-        algo::et_field, compute_node::lt_tree::LocalTrustTree, systems::optimistic::Challenge,
+        algo::et_field, compute_node::am_tree::AdjacencyMatrixTree, systems::optimistic::Challenge,
     };
     use halo2curves::bn256::Fr;
 
@@ -357,7 +522,7 @@ mod test {
             res.to_vec(),
         );
         let lt_tree =
-            LocalTrustTree::new(peers.to_vec(), lt.map(|lt_arr| lt_arr.to_vec()).to_vec());
+            AdjacencyMatrixTree::new(peers.to_vec(), lt.map(|lt_arr| lt_arr.to_vec()).to_vec());
 
         let challenge = Challenge {
             from: peers[0],

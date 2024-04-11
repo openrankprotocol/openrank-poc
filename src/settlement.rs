@@ -1,7 +1,7 @@
 use halo2curves::bn256::Fr;
 
 use crate::{
-    compute_node::{ComputeTreeValidityProof, ConsistencyProof},
+    compute_node::{ConsistencyProof, EtComputeTreeValidityProof},
     systems::optimistic::{Challenge, ConsistencyChallenge},
 };
 
@@ -9,7 +9,7 @@ pub struct SmartContract {
     data: Option<[Fr; 2]>,
     challenge_validity: Option<Challenge>,
     challenge_consistency: Option<ConsistencyChallenge>,
-    response_validity: Option<ComputeTreeValidityProof>,
+    response_validity: Option<EtComputeTreeValidityProof>,
     response_consistency: Option<ConsistencyProof>,
 }
 
@@ -39,7 +39,7 @@ impl SmartContract {
 
     pub fn post_response(
         &mut self,
-        validity_proof: ComputeTreeValidityProof,
+        validity_proof: EtComputeTreeValidityProof,
         consistency_proof: ConsistencyProof,
     ) {
         self.response_validity = Some(validity_proof);

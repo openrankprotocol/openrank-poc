@@ -2,10 +2,13 @@ use halo2curves::{bn256::Fr, ff::PrimeField};
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One};
 
-use crate::algo::{
-    et_field,
-    et_rational::{self, Br},
-    h_and_a_float, h_and_a_rational,
+use crate::{
+    algo::{
+        et_field,
+        et_rational::{self, Br},
+        h_and_a_rational,
+    },
+    compute_node::{big_to_fe_rat, compose_big_decimal_f},
 };
 
 pub mod optimistic;
@@ -67,15 +70,6 @@ pub fn compute_node_ha_work(
     let initial_state_hubs_br = h_and_a_rational::normalise(initial_state_hubs_bn);
     let initial_state_auth_br = h_and_a_rational::normalise(initial_state_auth_bn);
 
-    let am_fl = am.map(|xs| xs.map(|x| x as f32));
-    let initial_state_hubs_fl = initial_state_hubs.map(|x| x as f32);
-    let initial_state_auth_fl = initial_state_auth.map(|x| x as f32);
-
-    let initial_state_hubs_fl = h_and_a_float::normalise(initial_state_hubs_fl);
-    let initial_state_auth_fl = h_and_a_float::normalise(initial_state_auth_fl);
-
-    let (scores_hubs_fl, scores_auth_fl) =
-        h_and_a_float::run::<30>(am_fl, initial_state_hubs_fl, initial_state_auth_fl);
     let (scores_hubs_br, scores_auth_br) =
         h_and_a_rational::run::<30>(am_bn.clone(), initial_state_hubs_br, initial_state_auth_br);
     let (final_scores_hubs_br, final_scores_auth_br) = h_and_a_rational::run::<1>(
@@ -84,9 +78,23 @@ pub fn compute_node_ha_work(
         scores_auth_br.clone(),
     );
 
-    const SCALE: f32 = 1000000000.0;
-    let scores_hubs_f = scores_hubs_fl.map(|x| Fr::from_u128((x * SCALE) as u128));
-    let scores_auth_f = scores_auth_fl.map(|x| Fr::from_u128((x * SCALE) as u128));
+    let precision = 6;
+    let scores_hubs_f = scores_hubs_br
+        .clone()
+        .map(|x| big_to_fe_rat(x.numer().clone(), x.denom().clone(), precision))
+        .map(|x| {
+            let num = compose_big_decimal_f(x.num, precision);
+            let den = compose_big_decimal_f(x.den, precision);
+            num * den.invert().unwrap()
+        });
+    let scores_auth_f = scores_auth_br
+        .clone()
+        .map(|x| big_to_fe_rat(x.numer().clone(), x.denom().clone(), precision))
+        .map(|x| {
+            let num = compose_big_decimal_f(x.num, precision);
+            let den = compose_big_decimal_f(x.den, precision);
+            num * den.invert().unwrap()
+        });
 
     (
         am_f,
