@@ -78,7 +78,7 @@ pub fn compute_node_ha_work(
         h_and_a_float::run::<30>(am_fl, initial_state_hubs_fl, initial_state_auth_fl);
     let (scores_hubs_br, scores_auth_br) =
         h_and_a_rational::run::<30>(am_bn.clone(), initial_state_hubs_br, initial_state_auth_br);
-    let (final_scores_hubs, final_scores_auth) = h_and_a_rational::run::<1>(
+    let (final_scores_hubs_br, final_scores_auth_br) = h_and_a_rational::run::<1>(
         am_bn.clone(),
         scores_hubs_br.clone(),
         scores_auth_br.clone(),
@@ -93,6 +93,6 @@ pub fn compute_node_ha_work(
         am_bn,
         (scores_hubs_f, scores_auth_f),
         (scores_hubs_br, scores_auth_br),
-        (final_scores_hubs, final_scores_auth),
+        (final_scores_hubs_br, final_scores_auth_br),
     )
 }

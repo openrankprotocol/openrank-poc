@@ -16,7 +16,7 @@ pub struct ConsistencyChallenge {
     pub(crate) target2: Challenge,
 }
 
-fn et_optimisitic_interactive() {
+pub fn et_optimisitic_interactive() {
     let mut rng = thread_rng();
     let peers = [
         Fr::random(&mut rng),
@@ -72,7 +72,7 @@ fn et_optimisitic_interactive() {
     sc.post_response(validity_proof, consistency_proof); // proof is also verified here
 }
 
-fn et_optimisitic_interactive_failing() {
+pub fn et_optimisitic_interactive_failing() {
     let mut rng = thread_rng();
     let peers = [
         Fr::random(&mut rng),

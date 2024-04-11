@@ -5,8 +5,9 @@ use halo2curves::bn256::Fr;
 use crate::{
     merkle_tree::{Path, SparseMerkleTree},
     systems::optimistic::Challenge,
-    Hasher,
 };
+
+use super::Hasher;
 
 pub struct ComputeTreeMembershipProof {
     // Proof of membership for Master Tree

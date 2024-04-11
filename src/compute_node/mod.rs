@@ -1,5 +1,7 @@
+use crate::params::poseidon_bn254_5x5::Params;
+use crate::poseidon::Poseidon;
 use crate::systems::optimistic::{Challenge, ConsistencyChallenge};
-use crate::{algo::et_rational::Br, merkle_tree::Path, Hasher};
+use crate::{algo::et_rational::Br, merkle_tree::Path};
 use halo2curves::ff::Field;
 use halo2curves::{bn256::Fr, ff::PrimeField};
 use num_bigint::BigUint;
@@ -13,6 +15,8 @@ use self::{
 
 mod compute_tree;
 mod lt_tree;
+
+type Hasher = Poseidon<5, Params>;
 
 pub struct ConsistencyProof {
     // Peers Global Trust path

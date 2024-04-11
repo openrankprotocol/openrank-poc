@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use crate::{
     merkle_tree::{Path, SparseMerkleTree},
     systems::optimistic::Challenge,
-    Hasher,
 };
+
+use super::Hasher;
 
 struct LinearCombination {
     from: Fr,

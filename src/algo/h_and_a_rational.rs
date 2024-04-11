@@ -5,6 +5,48 @@ use std::array::from_fn;
 
 pub type Br = Ratio<BigUint>;
 
+pub fn approx_square_root(value: Br, epsilon: Br) -> Br {
+    if value < Br::zero() {
+        panic!("approx_square_root() cannot calculate the square root of negative values.");
+    } else if epsilon <= Br::zero() {
+        panic!(
+            "approx_square_root() cannot calculate the square root with a non-positive epsilon."
+        );
+    }
+
+    #[inline]
+    fn calc_seed(value: &Br) -> Br {
+        let bits = value.ceil().to_integer().bits();
+        let half_bits = bits / 2;
+        let approximate = BigUint::one() << half_bits;
+        Br::from_integer(approximate)
+    };
+
+    let mut x = if value >= Br::one() {
+        calc_seed(&value)
+    } else {
+        calc_seed(&(value.recip())).recip()
+    };
+
+    #[inline]
+    fn calc_next_x(value: Br, x: Br) -> Br {
+        let two = Br::one() + Br::one();
+        (x.clone() + (value / x)) / two
+    };
+
+    #[inline]
+    fn calc_approx_error(value: Br, x: Br) -> Br {
+        let two = Br::one() + Br::one();
+        ((value - (x.clone() * x.clone())) / (x * two))
+    }
+
+    while calc_approx_error(value.clone(), x.clone()) > epsilon {
+        x = calc_next_x(value.clone(), x);
+    }
+
+    x
+}
+
 pub fn transpose<const N: usize>(s: [[BigUint; N]; N]) -> [[BigUint; N]; N] {
     let mut new_s: [[BigUint; N]; N] = from_fn(|_| from_fn(|_| BigUint::zero()));
     for i in 0..N {
@@ -21,9 +63,13 @@ pub fn normalise_sqrt<const N: usize>(vector: [Br; N]) -> [Br; N] {
         return from_fn(|_| Br::zero());
     }
     vector.map(|x| {
+        // let res = approx_square_root(
+        //     sum.clone(),
+        //     Br::from_integer(BigUint::from_u64(1000).unwrap()),
+        // );
         let num_sqrt = sum.numer().sqrt();
         let den_sqrt = sum.denom().sqrt();
-        x * Br::new(num_sqrt, den_sqrt)
+        x / Br::new(num_sqrt, den_sqrt)
     })
 }
 
@@ -42,6 +88,8 @@ pub fn run<const NUM_ITER: usize>(
     let mut s_hubs = initial_state_hubs.clone();
     let mut s_auth = initial_state_auth.clone();
     let transposed_am = transpose(am.clone());
+    let am_br = am.map(|xs| xs.map(|x| Br::new(x, BigUint::one())));
+    let transposed_am_br = transposed_am.map(|xs| xs.map(|x| Br::new(x, BigUint::one())));
 
     for _ in 0..NUM_ITER {
         let mut new_s_hubs = from_fn(|_| Br::zero());
@@ -50,14 +98,13 @@ pub fn run<const NUM_ITER: usize>(
         // Hubs
         for i in 0..NUM_NEIGHBOURS {
             for j in 0..NUM_NEIGHBOURS {
-                new_s_hubs[i] += Br::new(am[j][i].clone(), BigUint::one()) * s_auth[j].clone();
+                new_s_hubs[i] += am_br[j][i].clone() * s_auth[j].clone();
             }
         }
         // Authorities
         for i in 0..NUM_NEIGHBOURS {
             for j in 0..NUM_NEIGHBOURS {
-                new_s_auth[i] +=
-                    Br::new(transposed_am[j][i].clone(), BigUint::one()) * s_hubs[j].clone();
+                new_s_auth[i] += transposed_am_br[j][i].clone() * s_hubs[j].clone();
             }
         }
 
