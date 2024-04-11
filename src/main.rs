@@ -1,5 +1,7 @@
-use systems::optimistic::{et_optimisitic_interactive, et_optimisitic_interactive_failing};
-use systems::pessimistic::{et_pessimistic, et_pessimistic_failing, ha_pessimistic};
+use systems::optimistic::{et_optimisitic_interactive, et_optimisitic_interactive_invalid};
+use systems::pessimistic::{
+    et_pessimistic, et_pessimistic_invalid, ha_pessimistic, ha_pessimistic_invalid,
+};
 
 mod algo;
 mod compute_node;
@@ -19,5 +21,6 @@ fn main() {
     // et_optimisitic_interactive_failing();
 
     // Hubs And Authorities pessimistic
-    ha_pessimistic();
+    // ha_pessimistic();
+    ha_pessimistic_invalid();
 }

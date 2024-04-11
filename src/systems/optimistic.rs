@@ -72,7 +72,7 @@ pub fn et_optimisitic_interactive() {
     sc.post_response(validity_proof, consistency_proof); // proof is also verified here
 }
 
-pub fn et_optimisitic_interactive_failing() {
+pub fn et_optimisitic_interactive_invalid() {
     let mut rng = thread_rng();
     let peers = [
         Fr::random(&mut rng),
