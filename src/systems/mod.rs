@@ -1,7 +1,3 @@
-use halo2curves::{bn256::Fr, ff::PrimeField};
-use num_bigint::BigUint;
-use num_traits::{FromPrimitive, One};
-
 use crate::{
     algo::{
         et_field,
@@ -10,6 +6,9 @@ use crate::{
     },
     compute_node::{big_to_fe_rat, compose_big_decimal_f},
 };
+use halo2curves::{bn256::Fr, ff::PrimeField};
+use num_bigint::BigUint;
+use num_traits::{FromPrimitive, One};
 
 pub mod optimistic;
 pub mod pessimistic;

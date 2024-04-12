@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::params::poseidon_bn254_5x5::Params;
 use crate::poseidon::Poseidon;
 use crate::systems::optimistic::{Challenge, ConsistencyChallenge};
@@ -185,7 +187,7 @@ impl EtComputeNode {
         scores_final_br: Vec<Br>,
     ) -> Self {
         let local_trust_tree = AdjacencyMatrixTree::new(peers.clone(), lt.clone());
-        let compute_tree = ComputeTree::new(peers.clone(), lt, scores_f.clone());
+        let compute_tree = Self::construct_compute_tree(peers.clone(), lt, scores_f);
         Self {
             compute_tree,
             local_trust_tree,
@@ -193,6 +195,36 @@ impl EtComputeNode {
             scores_br,
             scores_final_br,
         }
+    }
+
+    pub fn construct_compute_tree(
+        peers: Vec<Fr>,
+        lt: Vec<Vec<Fr>>,
+        scores_f: Vec<Fr>,
+    ) -> ComputeTree {
+        let mut lt_sum: Vec<Fr> = Vec::new();
+        for i in 0..peers.len() {
+            lt_sum.push(lt[i].iter().sum());
+        }
+        let mut master_c_tree_leaves = Vec::new();
+        let mut sub_trees = HashMap::new();
+        for i in 0..peers.len() {
+            let mut sub_tree_leaves = Vec::new();
+            for j in 0..peers.len() {
+                let gt = scores_f[j];
+                let lt_norm = lt[j][i] * lt_sum[j].invert().unwrap();
+                sub_tree_leaves.push((lt_norm, gt));
+            }
+            let sub_tree = ComputeTree::construct_sub_tree(peers.clone(), sub_tree_leaves);
+            let (root_hash, score) = sub_tree.root();
+
+            sub_trees.insert(peers[i], sub_tree);
+            master_c_tree_leaves.push((root_hash, score));
+        }
+
+        let master_tree = ComputeTree::construct_master_tree(peers, master_c_tree_leaves);
+        let compute_tree = ComputeTree::new(sub_trees, master_tree);
+        compute_tree
     }
 
     pub fn compute_consistency_proof(&self, challenge: ConsistencyChallenge) -> ConsistencyProof {
@@ -261,6 +293,30 @@ pub struct HaComputeTreeValidityProof {
     c: BrDecomposed,
     // Calculated score
     c_prime: BrDecomposed,
+
+    s: BrDecomposed,
+    s_prime: BrDecomposed,
+
+    r: BrDecomposed,
+    r_prime: BrDecomposed,
+}
+
+impl HaComputeTreeValidityProof {
+    pub fn verify(&self, data: [Fr; 2], challenge: Challenge) -> bool {
+        self.check_against_challenge(challenge)
+            && self.check_against_data(data)
+            && self.check_score_correctness()
+    }
+
+    pub fn check_score_correctness(&self) -> bool {
+        true
+    }
+    pub fn check_against_data(&self, data: [Fr; 2]) -> bool {
+        true
+    }
+    pub fn check_against_challenge(&self, challenge: Challenge) -> bool {
+        true
+    }
 }
 
 pub struct HaComputeNode {
@@ -286,8 +342,10 @@ impl HaComputeNode {
         scores_auth_final_br: Vec<Br>,
     ) -> Self {
         let ajacency_matrix_tree = AdjacencyMatrixTree::new(peers.clone(), am.clone());
-        let hubs_compute_tree = ComputeTree::new(peers.clone(), am.clone(), scores_hubs_f.clone());
-        let auth_compute_tree = ComputeTree::new(peers.clone(), am, scores_auth_f.clone());
+        let hubs_compute_tree =
+            Self::construct_compute_tree(peers.clone(), am.clone(), scores_hubs_f.clone());
+        let auth_compute_tree =
+            Self::construct_compute_tree(peers.clone(), am, scores_auth_f.clone());
         Self {
             hubs_compute_tree,
             auth_compute_tree,
@@ -298,6 +356,35 @@ impl HaComputeNode {
             scores_hubs_final_br,
             scores_auth_final_br,
         }
+    }
+
+    pub fn construct_compute_tree(
+        peers: Vec<Fr>,
+        am: Vec<Vec<Fr>>,
+        scores_f: Vec<Fr>,
+    ) -> ComputeTree {
+        let mut lt_sum: Vec<Fr> = Vec::new();
+        for i in 0..peers.len() {
+            lt_sum.push(am[i].iter().sum());
+        }
+        let mut master_c_tree_leaves = Vec::new();
+        let mut sub_trees = HashMap::new();
+        for i in 0..peers.len() {
+            let mut sub_tree_leaves = Vec::new();
+            for j in 0..peers.len() {
+                sub_tree_leaves.push((am[j][i], scores_f[j]));
+            }
+            let sub_tree = ComputeTree::construct_sub_tree(peers.clone(), sub_tree_leaves);
+            let (root_hash, score) = sub_tree.root();
+            sub_trees.insert(peers[i], sub_tree);
+
+            let (leaf, val) = ComputeTree::pre_process_leaf([root_hash, Fr::zero(), score, score]);
+            master_c_tree_leaves.push((leaf, val));
+        }
+
+        let master_tree = ComputeTree::construct_master_tree(peers, master_c_tree_leaves);
+        let compute_tree = ComputeTree::new(sub_trees, master_tree);
+        compute_tree
     }
 
     pub fn compute_hubs_consistency_proof(
@@ -356,13 +443,20 @@ impl HaComputeNode {
         // To find the common grond needed for comparison
         let c_br = self.scores_hubs_br[index].clone();
         let c_prime_br = self.scores_hubs_final_br[index].clone();
-        let lcm = c_br.denom().lcm(&c_prime_br.denom());
-        let c_numer = c_br.numer().clone() * (lcm.clone() / c_br.denom().clone());
-        let c_prime_numer = c_prime_br.numer() * (lcm.clone() / c_prime_br.denom());
+        let (c, c_prime) = lcm_decompose(c_br, c_prime_br, precision);
 
-        // Decompose the numerators into limbs with each limb having 'precision' amount of digits
-        let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
-        let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
+        // Find lowest common multiplier for the sqrt of number and the number itself
+        let sum: Br = self
+            .scores_auth_final_br
+            .iter()
+            .map(|x| x.pow(2))
+            .sum::<Br>();
+        let sum_sqrt = Br::new(sum.numer().sqrt(), sum.denom().sqrt());
+        let target_val = self.scores_hubs_br[index].clone();
+        let (s, s_prime) = lcm_decompose(sum_sqrt.clone(), target_val, precision);
+
+        // Find lowest common multiplier for sqrt squared and the original sum
+        let (r, r_prime) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, precision);
 
         HaComputeTreeValidityProof {
             peer_path,
@@ -370,6 +464,10 @@ impl HaComputeNode {
             neighbour_path,
             c,
             c_prime,
+            s,
+            s_prime,
+            r,
+            r_prime,
         }
     }
 
@@ -395,15 +493,22 @@ impl HaComputeNode {
 
         // Find lowest common multiplier for 2 scores (rational numbers)
         // To find the common grond needed for comparison
-        let c_br = self.scores_auth_br[index].clone();
-        let c_prime_br = self.scores_auth_final_br[index].clone();
-        let lcm = c_br.denom().lcm(&c_prime_br.denom());
-        let c_numer = c_br.numer().clone() * (lcm.clone() / c_br.denom().clone());
-        let c_prime_numer = c_prime_br.numer() * (lcm.clone() / c_prime_br.denom());
+        let c_br = self.scores_hubs_br[index].clone();
+        let c_prime_br = self.scores_hubs_final_br[index].clone();
+        let (c, c_prime) = lcm_decompose(c_br, c_prime_br, precision);
 
-        // Decompose the numerators into limbs with each limb having 'precision' amount of digits
-        let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
-        let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
+        // Find lowest common multiplier for the sqrt of number and the number itself
+        let sum: Br = self
+            .scores_auth_final_br
+            .iter()
+            .map(|x| x.pow(2))
+            .sum::<Br>();
+        let sum_sqrt = Br::new(sum.numer().sqrt(), sum.denom().sqrt());
+        let target_val = self.scores_hubs_br[index].clone();
+        let (s, s_prime) = lcm_decompose(sum_sqrt.clone(), target_val, precision);
+
+        // Find lowest common multiplier for sqrt squared and the original sum
+        let (r, r_prime) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, precision);
 
         HaComputeTreeValidityProof {
             peer_path,
@@ -411,6 +516,10 @@ impl HaComputeNode {
             neighbour_path,
             c,
             c_prime,
+            s,
+            s_prime,
+            r,
+            r_prime,
         }
     }
 
@@ -428,6 +537,20 @@ pub struct BrDecomposed {
     pub(crate) den: Vec<Fr>,
     num_limbs: usize,
     power_of_ten: usize,
+}
+
+fn lcm_decompose(br_a: Br, br_b: Br, precision: usize) -> (BrDecomposed, BrDecomposed) {
+    let c_br = br_a.clone();
+    let c_prime_br = br_b.clone();
+    let lcm = c_br.denom().lcm(&c_prime_br.denom());
+    let c_numer = c_br.numer().clone() * (lcm.clone() / c_br.denom().clone());
+    let c_prime_numer = c_prime_br.numer() * (lcm.clone() / c_prime_br.denom());
+
+    // Decompose the numerators into limbs with each limb having 'precision' amount of digits
+    let c = big_to_fe_rat(c_numer, lcm.clone(), precision);
+    let c_prime = big_to_fe_rat(c_prime_numer, lcm, precision);
+
+    (c, c_prime)
 }
 
 /// Converts a `BigRational` into scaled, decomposed numerator and denominator arrays of field elements.
@@ -496,7 +619,9 @@ pub fn big_to_fr(e: BigUint) -> Fr {
 mod test {
     use super::ComputeTree;
     use crate::{
-        algo::et_field, compute_node::am_tree::AdjacencyMatrixTree, systems::optimistic::Challenge,
+        algo::et_field,
+        compute_node::{am_tree::AdjacencyMatrixTree, EtComputeNode},
+        systems::optimistic::Challenge,
     };
     use halo2curves::bn256::Fr;
 
@@ -516,10 +641,12 @@ mod test {
         let pre_trust = [0, 0, 0, 3, 7].map(|x| Fr::from(x));
         let res = et_field::positive_run::<30>(lt, pre_trust);
 
-        let compute_tree = ComputeTree::new(
+        let compute_node = EtComputeNode::new(
             peers.to_vec(),
             lt.map(|lt_arr| lt_arr.to_vec()).to_vec(),
             res.to_vec(),
+            Vec::new(),
+            Vec::new(),
         );
         let lt_tree =
             AdjacencyMatrixTree::new(peers.to_vec(), lt.map(|lt_arr| lt_arr.to_vec()).to_vec());
@@ -528,7 +655,9 @@ mod test {
             from: peers[0],
             to: peers[1],
         };
-        let cp_proof = compute_tree.find_membership_proof(challenge.clone());
+        let cp_proof = compute_node
+            .compute_tree
+            .find_membership_proof(challenge.clone());
         let lt_proof = lt_tree.find_membership_proof(challenge);
 
         let (lt_cp, _) = cp_proof.sub_tree_path.value();

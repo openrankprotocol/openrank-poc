@@ -1,10 +1,9 @@
-use halo2curves::bn256::Fr;
-use std::collections::HashMap;
-
 use crate::{
     merkle_tree::{Path, SparseMerkleTree},
     systems::optimistic::Challenge,
 };
+use halo2curves::bn256::Fr;
+use std::collections::HashMap;
 
 use super::Hasher;
 

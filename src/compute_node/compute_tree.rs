@@ -1,13 +1,11 @@
-use std::collections::HashMap;
-
-use halo2curves::bn256::Fr;
-
+use super::Hasher;
 use crate::{
     merkle_tree::{Path, SparseMerkleTree},
+    poseidon::Hasher as HTrait,
     systems::optimistic::Challenge,
 };
-
-use super::Hasher;
+use halo2curves::bn256::Fr;
+use std::collections::HashMap;
 
 pub struct ComputeTreeMembershipProof {
     // Proof of membership for Master Tree
@@ -37,33 +35,22 @@ pub struct ComputeTree {
 }
 
 impl ComputeTree {
-    pub fn new(peers: Vec<Fr>, lt: Vec<Vec<Fr>>, res: Vec<Fr>) -> Self {
-        let mut lt_sum: Vec<Fr> = Vec::new();
-        for i in 0..peers.len() {
-            lt_sum.push(lt[i].iter().sum());
-        }
-        let mut master_c_tree_leaves = Vec::new();
-        let mut sub_trees = HashMap::new();
-        for i in 0..peers.len() {
-            let mut sub_tree_leaves = Vec::new();
-            for j in 0..peers.len() {
-                let gt = res[j];
-                let lt_norm = lt[j][i] * lt_sum[j].invert().unwrap();
-                sub_tree_leaves.push((lt_norm, gt));
-            }
-            let sub_tree = Self::construct_sub_tree(peers.clone(), sub_tree_leaves);
-            let (root_hash, score) = sub_tree.root();
-
-            sub_trees.insert(peers[i], sub_tree);
-            master_c_tree_leaves.push((root_hash, score));
-        }
-
-        let master_tree = Self::construct_master_tree(peers, master_c_tree_leaves);
-
+    pub fn new(
+        sub_trees: HashMap<Fr, SparseMerkleTree<Hasher>>,
+        master_tree: SparseMerkleTree<Hasher>,
+    ) -> Self {
         Self {
             master_tree,
             sub_trees,
         }
+    }
+
+    pub fn pre_process_leaf(vals: [Fr; 4]) -> (Fr, Fr) {
+        let [prefix, a, b, c] = vals;
+        let res = a + b * c;
+        let inputs = [prefix, a, b, c, Fr::zero()];
+        let hash = Hasher::new(inputs).finalize();
+        (hash, res)
     }
 
     // Helper function to construct the sub tree given the vector of leaves
@@ -106,42 +93,5 @@ impl ComputeTree {
             master_tree_path,
             sub_tree_path,
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::ComputeTree;
-    use crate::{algo::et_field, systems::optimistic::Challenge};
-    use halo2curves::bn256::Fr;
-
-    #[test]
-    fn should_create_compute_tree() {
-        let peers = [1, 2, 3, 4, 5].map(|x| Fr::from(x));
-
-        let lt = [
-            [0, 1, 4, 1, 4],
-            [0, 0, 4, 1, 4],
-            [0, 1, 0, 1, 4],
-            [2, 1, 5, 0, 4],
-            [3, 1, 4, 1, 0],
-        ]
-        .map(|xs| xs.map(|x| Fr::from(x)));
-
-        let pre_trust = [0, 0, 0, 3, 7].map(|x| Fr::from(x));
-        let res = et_field::positive_run::<30>(lt, pre_trust);
-
-        let compute_tree = ComputeTree::new(
-            peers.to_vec(),
-            lt.map(|lt_arr| lt_arr.to_vec()).to_vec(),
-            res.to_vec(),
-        );
-
-        let challenge = Challenge {
-            from: peers[0],
-            to: peers[1],
-        };
-        let mem_proof = compute_tree.find_membership_proof(challenge);
-        assert!(mem_proof.verify());
     }
 }

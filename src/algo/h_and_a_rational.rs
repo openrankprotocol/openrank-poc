@@ -1,51 +1,12 @@
+use crate::compute_node::big_to_fe_rat;
+use halo2curves::bn256::Fr;
 use num_bigint::BigUint;
+use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{FromPrimitive, One, Zero};
 use std::array::from_fn;
 
 pub type Br = Ratio<BigUint>;
-
-pub fn approx_square_root(value: Br, epsilon: Br) -> Br {
-    if value < Br::zero() {
-        panic!("approx_square_root() cannot calculate the square root of negative values.");
-    } else if epsilon <= Br::zero() {
-        panic!(
-            "approx_square_root() cannot calculate the square root with a non-positive epsilon."
-        );
-    }
-
-    #[inline]
-    fn calc_seed(value: &Br) -> Br {
-        let bits = value.ceil().to_integer().bits();
-        let half_bits = bits / 2;
-        let approximate = BigUint::one() << half_bits;
-        Br::from_integer(approximate)
-    };
-
-    let mut x = if value >= Br::one() {
-        calc_seed(&value)
-    } else {
-        calc_seed(&(value.recip())).recip()
-    };
-
-    #[inline]
-    fn calc_next_x(value: Br, x: Br) -> Br {
-        let two = Br::one() + Br::one();
-        (x.clone() + (value / x)) / two
-    };
-
-    #[inline]
-    fn calc_approx_error(value: Br, x: Br) -> Br {
-        let two = Br::one() + Br::one();
-        ((value - (x.clone() * x.clone())) / (x * two))
-    }
-
-    while calc_approx_error(value.clone(), x.clone()) > epsilon {
-        x = calc_next_x(value.clone(), x);
-    }
-
-    x
-}
 
 pub fn transpose<const N: usize>(s: [[BigUint; N]; N]) -> [[BigUint; N]; N] {
     let mut new_s: [[BigUint; N]; N] = from_fn(|_| from_fn(|_| BigUint::zero()));
@@ -62,15 +23,11 @@ pub fn normalise_sqrt<const N: usize>(vector: [Br; N]) -> [Br; N] {
     if sum == Br::zero() {
         return from_fn(|_| Br::zero());
     }
-    vector.map(|x| {
-        // let res = approx_square_root(
-        //     sum.clone(),
-        //     Br::from_integer(BigUint::from_u64(1000).unwrap()),
-        // );
-        let num_sqrt = sum.numer().sqrt();
-        let den_sqrt = sum.denom().sqrt();
-        x / Br::new(num_sqrt, den_sqrt)
-    })
+    let num_sqrt = sum.numer().sqrt();
+    let den_sqrt = sum.denom().sqrt();
+    let sum_sqrt = Br::new(num_sqrt, den_sqrt);
+
+    vector.map(|x| x / sum_sqrt.clone())
 }
 
 pub fn normalise(scores: [BigUint; NUM_NEIGHBOURS]) -> [Br; NUM_NEIGHBOURS] {
