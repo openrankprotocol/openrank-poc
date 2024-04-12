@@ -1,5 +1,5 @@
 use crate::compute_node::EtComputeNode;
-use crate::settlement::SmartContract;
+use crate::settlement::EtSmartContract;
 use crate::systems::compute_node_et_work;
 use halo2curves::{bn256::Fr, ff::Field};
 use rand::thread_rng;
@@ -36,7 +36,7 @@ pub fn et_optimisitic_interactive() {
     ];
     let pre_trust = [0, 0, 0, 3, 7];
 
-    let mut sc = SmartContract::new();
+    let mut sc = EtSmartContract::new();
 
     // Compute node does the work
     let (lt_f, res_f, res_br, res_final_br) = compute_node_et_work(lt, pre_trust);
@@ -92,7 +92,7 @@ pub fn et_optimisitic_interactive_invalid() {
     ];
     let pre_trust = [0, 0, 0, 3, 7];
 
-    let mut sc = SmartContract::new();
+    let mut sc = EtSmartContract::new();
 
     // Compute node does the work
     let (lt_f, mut res_f, res_br, res_final_br) = compute_node_et_work(lt, pre_trust);
@@ -152,7 +152,7 @@ pub fn ha_optimisitic_interactive() {
     let initial_state_hubs = [32, 0, 22, 0, 66];
     let initial_state_auth = [32, 11, 14, 1, 33];
 
-    let mut sc = SmartContract::new();
+    let mut sc = EtSmartContract::new();
 
     // Compute node does the work
     let (am_f, am_bn, res_f, res_br, res_final_br) =

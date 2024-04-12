@@ -23,6 +23,31 @@ impl ComputeTreeMembershipProof {
         let is_link_correct = leaf_value == root_value;
         is_master_root_correct && is_sub_root_correct && is_link_correct
     }
+
+    pub fn verify_with_preimage(&self, pre_image: [Fr; 4]) -> bool {
+        let is_sub_root_correct = self.sub_tree_path.verify_mul();
+        let is_master_root_correct = self.master_tree_path.verify();
+
+        let (s_root, s_value) = self.sub_tree_path.root();
+        let (m_leaf, m_value) = self.master_tree_path.value();
+
+        let [sub_root_hash, a, b, c] = pre_image;
+        let val = a + b * c;
+        let hash = Hasher::new([sub_root_hash, a, b, c, Fr::zero()]).finalize();
+
+        let is_s_value_correct = s_value == b;
+        let is_s_root_correct = s_root == sub_root_hash;
+
+        let is_m_leaf_correct = m_leaf == hash;
+        let is_m_value_correct = m_value == val;
+
+        is_master_root_correct
+            && is_sub_root_correct
+            && is_s_value_correct
+            && is_s_root_correct
+            && is_m_leaf_correct
+            && is_m_value_correct
+    }
 }
 
 pub struct ComputeTree {

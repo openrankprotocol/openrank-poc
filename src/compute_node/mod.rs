@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::params::poseidon_bn254_5x5::Params;
-use crate::poseidon::Poseidon;
+use crate::poseidon::{Hasher as HTrait, Poseidon};
 use crate::systems::optimistic::{Challenge, ConsistencyChallenge};
 use crate::{algo::et_rational::Br, merkle_tree::Path};
 use halo2curves::ff::Field;
@@ -101,6 +101,9 @@ impl EtComputeTreeValidityProof {
         let (lt, gt) = self.peer_path.sub_tree_path.value();
         let (_, gt_prime) = self.neighbour_path.value();
 
+        // Then we check the correctness of local trust score
+        let is_lt_correct = (lt_score * sum.invert().unwrap()) == lt;
+
         // First, we compose the decomposed rational numbers
         let composed_c_num = compose_big_decimal_f(self.c.num.clone(), self.c.power_of_ten);
         let composed_c_den = compose_big_decimal_f(self.c.den.clone(), self.c.power_of_ten);
@@ -109,9 +112,6 @@ impl EtComputeTreeValidityProof {
             compose_big_decimal_f(self.c_prime.num.clone(), self.c_prime.power_of_ten);
         let composed_c_prime_den =
             compose_big_decimal_f(self.c_prime.den.clone(), self.c_prime.power_of_ten);
-
-        // Then we check the correctness of local trust score
-        let is_lt_correct = (lt_score * sum.invert().unwrap()) == lt;
 
         // Then we check the equality with the field elements corresponding to each score separately
         let composed_c = composed_c_num * composed_c_den.invert().unwrap();
@@ -289,33 +289,117 @@ pub struct HaComputeTreeValidityProof {
     neighbour_path: Path<Hasher>,
     // Neighbours adjacency tree path
     am_tree_path: AmTreeMembershipProof,
+    // Neighbour score pre-image
+    neighbour_score_preimage: [Fr; 4],
+    // Peer score pre-image
+    peer_score_preimage: [Fr; 4],
     // Claimed score
     c: BrDecomposed,
     // Calculated score
     c_prime: BrDecomposed,
-
-    s: BrDecomposed,
-    s_prime: BrDecomposed,
-
-    r: BrDecomposed,
-    r_prime: BrDecomposed,
+    // R calculated from approximate square root
+    approx_r: BrDecomposed,
+    // Real R used in the tree
+    real_r: BrDecomposed,
 }
 
 impl HaComputeTreeValidityProof {
-    pub fn verify(&self, data: [Fr; 2], challenge: Challenge) -> bool {
+    pub fn verify(&self, data: [Fr; 3], challenge: Challenge) -> bool {
         self.check_against_challenge(challenge)
             && self.check_against_data(data)
             && self.check_score_correctness()
     }
 
     pub fn check_score_correctness(&self) -> bool {
-        true
+        let (_, am_score) = self.am_tree_path.sub_tree_path.value();
+        let (edge, c) = self.peer_path.sub_tree_path.value();
+        let (_, real_r) = self.neighbour_path.root();
+        let [_, _, c_prime, _] = self.neighbour_score_preimage;
+
+        let is_am_score_correct = (am_score == Fr::one()) || (am_score == Fr::zero());
+        let is_edge_correct = edge == am_score;
+
+        let composed_c = lcm_compose(self.c.clone());
+        let composed_c_prime = lcm_compose(self.c_prime.clone());
+        let composed_approx_r = lcm_compose(self.approx_r.clone());
+        let composed_real_r = lcm_compose(self.real_r.clone());
+
+        let r_rec = composed_c * composed_c;
+        let is_approx_r_correct = composed_approx_r == r_rec;
+        let is_real_r_correct = composed_real_r == real_r;
+        let is_c_correct = composed_c == c;
+        let is_c_prime_correct = composed_c_prime == c_prime;
+
+        let rounded_approx_r =
+            self.approx_r.den.last().unwrap() * self.approx_r.num.last().unwrap();
+        let rounded_real_r = self.real_r.den.last().unwrap() * self.real_r.num.last().unwrap();
+
+        let rounded_c = self.c.den.last().unwrap() * self.c.num.last().unwrap();
+        let rounded_c_prime = self.c_prime.den.last().unwrap() * self.c_prime.num.last().unwrap();
+
+        let is_r_equal = rounded_approx_r == rounded_real_r;
+        let is_c_equal = rounded_c == rounded_c_prime;
+
+        is_am_score_correct
+            && is_edge_correct
+            && is_approx_r_correct
+            && is_real_r_correct
+            && is_c_correct
+            && is_c_prime_correct
+            && is_r_equal
+            && is_c_equal
     }
-    pub fn check_against_data(&self, data: [Fr; 2]) -> bool {
-        true
+
+    pub fn check_against_data(&self, data: [Fr; 3]) -> bool {
+        let [local_trust_tree_root, hubs_compute_tree_root, auth_compute_tree_root] = data;
+
+        // Check if merkle paths are correct
+        let is_peer_path_correct = self
+            .peer_path
+            .verify_with_preimage(self.peer_score_preimage);
+        let is_neighbour_lt_path_correct = self.am_tree_path.verify();
+        let is_neighbour_path_correct = self.neighbour_path.verify();
+
+        let (peer_root, _) = self.peer_path.master_tree_path.root();
+        let (lt_root, _) = self.am_tree_path.master_tree_path.root();
+        let (n_root, _) = self.neighbour_path.root();
+        let n_leaf = self.neighbour_path.root();
+
+        let [sub_root_hash, a, b, c] = self.neighbour_score_preimage;
+        let val = a + b * c;
+        let hash = Hasher::new([sub_root_hash, a, b, c, Fr::zero()]).finalize();
+
+        // Check if merkle tree roots are matching the commited roots
+        let is_peer_root_correct =
+            (peer_root == hubs_compute_tree_root) || (peer_root == auth_compute_tree_root);
+        let is_lt_root_correct = lt_root == local_trust_tree_root;
+        let is_neighbour_root_correct =
+            (n_root == hubs_compute_tree_root) || (n_root == auth_compute_tree_root);
+        let is_compute_root_different = peer_root != n_root;
+        let is_neighbour_leaf_correct = n_leaf == (hash, val);
+
+        is_peer_path_correct
+            && is_neighbour_lt_path_correct
+            && is_neighbour_path_correct
+            && is_neighbour_root_correct
+            && is_lt_root_correct
+            && is_peer_root_correct
+            && is_compute_root_different
+            && is_neighbour_leaf_correct
     }
+
     pub fn check_against_challenge(&self, challenge: Challenge) -> bool {
-        true
+        let is_peer_lt_correct = self.am_tree_path.master_tree_path.index == challenge.from;
+        let is_neighbour_lt_correct = self.am_tree_path.sub_tree_path.index == challenge.to;
+        let is_peer_gt_term_correct = self.peer_path.sub_tree_path.index == challenge.from;
+        let is_peer_gt_correct = self.peer_path.master_tree_path.index == challenge.to;
+        let is_neighbour_index_correct = self.neighbour_path.index == challenge.from;
+
+        is_peer_lt_correct
+            && is_neighbour_lt_correct
+            && is_peer_gt_term_correct
+            && is_peer_gt_correct
+            && is_neighbour_index_correct
     }
 }
 
@@ -328,6 +412,8 @@ pub struct HaComputeNode {
     scores_auth_br: Vec<Br>,
     scores_hubs_final_br: Vec<Br>,
     scores_auth_final_br: Vec<Br>,
+    hubs_compute_tree_preimages: Vec<[Fr; 4]>,
+    auth_compute_tree_preimages: Vec<[Fr; 4]>,
 }
 
 impl HaComputeNode {
@@ -342,9 +428,9 @@ impl HaComputeNode {
         scores_auth_final_br: Vec<Br>,
     ) -> Self {
         let ajacency_matrix_tree = AdjacencyMatrixTree::new(peers.clone(), am.clone());
-        let hubs_compute_tree =
+        let (hubs_compute_tree, hubs_compute_tree_preimages) =
             Self::construct_compute_tree(peers.clone(), am.clone(), scores_hubs_f.clone());
-        let auth_compute_tree =
+        let (auth_compute_tree, auth_compute_tree_preimages) =
             Self::construct_compute_tree(peers.clone(), am, scores_auth_f.clone());
         Self {
             hubs_compute_tree,
@@ -355,6 +441,8 @@ impl HaComputeNode {
             scores_auth_br,
             scores_hubs_final_br,
             scores_auth_final_br,
+            hubs_compute_tree_preimages,
+            auth_compute_tree_preimages,
         }
     }
 
@@ -362,13 +450,14 @@ impl HaComputeNode {
         peers: Vec<Fr>,
         am: Vec<Vec<Fr>>,
         scores_f: Vec<Fr>,
-    ) -> ComputeTree {
+    ) -> (ComputeTree, Vec<[Fr; 4]>) {
         let mut lt_sum: Vec<Fr> = Vec::new();
         for i in 0..peers.len() {
             lt_sum.push(am[i].iter().sum());
         }
         let mut master_c_tree_leaves = Vec::new();
         let mut sub_trees = HashMap::new();
+        let mut pre_images = Vec::new();
         for i in 0..peers.len() {
             let mut sub_tree_leaves = Vec::new();
             for j in 0..peers.len() {
@@ -378,13 +467,15 @@ impl HaComputeNode {
             let (root_hash, score) = sub_tree.root();
             sub_trees.insert(peers[i], sub_tree);
 
-            let (leaf, val) = ComputeTree::pre_process_leaf([root_hash, Fr::zero(), score, score]);
+            let pre_image = [root_hash, Fr::zero(), score, score];
+            let (leaf, val) = ComputeTree::pre_process_leaf(pre_image);
             master_c_tree_leaves.push((leaf, val));
+            pre_images.push(pre_image);
         }
 
         let master_tree = ComputeTree::construct_master_tree(peers, master_c_tree_leaves);
         let compute_tree = ComputeTree::new(sub_trees, master_tree);
-        compute_tree
+        (compute_tree, pre_images)
     }
 
     pub fn compute_hubs_consistency_proof(
@@ -433,16 +524,19 @@ impl HaComputeNode {
             .find_membership_proof(challenge.clone());
         let neighbour_path = self.auth_compute_tree.master_tree.find_path(challenge.from);
 
-        let index = self
+        let n_index = self
             .peers
             .iter()
             .position(|&x| challenge.from == x)
             .unwrap();
+        let p_index = self.peers.iter().position(|&x| challenge.to == x).unwrap();
+        let neighbour_score_preimage = self.auth_compute_tree_preimages[n_index];
+        let peer_score_preimage = self.hubs_compute_tree_preimages[p_index];
 
         // Find lowest common multiplier for 2 scores (rational numbers)
         // To find the common grond needed for comparison
-        let c_br = self.scores_hubs_br[index].clone();
-        let c_prime_br = self.scores_hubs_final_br[index].clone();
+        let c_br = self.scores_hubs_br[n_index].clone();
+        let c_prime_br = self.scores_hubs_final_br[n_index].clone();
         let (c, c_prime) = lcm_decompose(c_br, c_prime_br, precision);
 
         // Find lowest common multiplier for the sqrt of number and the number itself
@@ -452,22 +546,20 @@ impl HaComputeNode {
             .map(|x| x.pow(2))
             .sum::<Br>();
         let sum_sqrt = Br::new(sum.numer().sqrt(), sum.denom().sqrt());
-        let target_val = self.scores_hubs_br[index].clone();
-        let (s, s_prime) = lcm_decompose(sum_sqrt.clone(), target_val, precision);
 
         // Find lowest common multiplier for sqrt squared and the original sum
-        let (r, r_prime) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, precision);
+        let (approx_r, real_r) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, precision);
 
         HaComputeTreeValidityProof {
             peer_path,
             am_tree_path,
             neighbour_path,
+            neighbour_score_preimage,
+            peer_score_preimage,
             c,
             c_prime,
-            s,
-            s_prime,
-            r,
-            r_prime,
+            approx_r,
+            real_r,
         }
     }
 
@@ -485,16 +577,19 @@ impl HaComputeNode {
             .find_membership_proof(challenge.clone());
         let neighbour_path = self.hubs_compute_tree.master_tree.find_path(challenge.from);
 
-        let index = self
+        let n_index = self
             .peers
             .iter()
             .position(|&x| challenge.from == x)
             .unwrap();
+        let p_index = self.peers.iter().position(|&x| challenge.to == x).unwrap();
+        let neighbour_score_preimage = self.auth_compute_tree_preimages[n_index];
+        let peer_score_preimage = self.hubs_compute_tree_preimages[p_index];
 
         // Find lowest common multiplier for 2 scores (rational numbers)
         // To find the common grond needed for comparison
-        let c_br = self.scores_hubs_br[index].clone();
-        let c_prime_br = self.scores_hubs_final_br[index].clone();
+        let c_br = self.scores_hubs_br[n_index].clone();
+        let c_prime_br = self.scores_hubs_final_br[n_index].clone();
         let (c, c_prime) = lcm_decompose(c_br, c_prime_br, precision);
 
         // Find lowest common multiplier for the sqrt of number and the number itself
@@ -504,22 +599,20 @@ impl HaComputeNode {
             .map(|x| x.pow(2))
             .sum::<Br>();
         let sum_sqrt = Br::new(sum.numer().sqrt(), sum.denom().sqrt());
-        let target_val = self.scores_hubs_br[index].clone();
-        let (s, s_prime) = lcm_decompose(sum_sqrt.clone(), target_val, precision);
 
         // Find lowest common multiplier for sqrt squared and the original sum
-        let (r, r_prime) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, precision);
+        let (approx_r, real_r) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, precision);
 
         HaComputeTreeValidityProof {
             peer_path,
             am_tree_path,
             neighbour_path,
+            neighbour_score_preimage,
+            peer_score_preimage,
             c,
             c_prime,
-            s,
-            s_prime,
-            r,
-            r_prime,
+            approx_r,
+            real_r,
         }
     }
 
@@ -537,6 +630,13 @@ pub struct BrDecomposed {
     pub(crate) den: Vec<Fr>,
     num_limbs: usize,
     power_of_ten: usize,
+}
+
+fn lcm_compose(n: BrDecomposed) -> Fr {
+    let composed_num = compose_big_decimal_f(n.num.clone(), n.power_of_ten);
+    let composed_den = compose_big_decimal_f(n.den.clone(), n.power_of_ten);
+    let composed = composed_num * composed_den.invert().unwrap();
+    composed
 }
 
 fn lcm_decompose(br_a: Br, br_b: Br, precision: usize) -> (BrDecomposed, BrDecomposed) {
