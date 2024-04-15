@@ -1,4 +1,6 @@
-use systems::optimistic::{et_optimisitic_interactive, et_optimisitic_interactive_invalid};
+use systems::optimistic::{
+    et_optimisitic_interactive, et_optimisitic_interactive_invalid, ha_optimisitic_interactive,
+};
 use systems::pessimistic::{
     et_pessimistic, et_pessimistic_invalid, ha_pessimistic, ha_pessimistic_invalid,
 };
@@ -25,4 +27,5 @@ fn main() {
     // ha_pessimistic_invalid();
 
     // Hubs And Authorities optimistic
+    ha_optimisitic_interactive();
 }

@@ -363,7 +363,7 @@ impl HaComputeTreeValidityProof {
         let (peer_root, _) = self.peer_path.master_tree_path.root();
         let (lt_root, _) = self.am_tree_path.master_tree_path.root();
         let (n_root, _) = self.neighbour_path.root();
-        let n_leaf = self.neighbour_path.root();
+        let n_leaf = self.neighbour_path.value();
 
         let [sub_root_hash, a, b, c] = self.neighbour_score_preimage;
         let val = a + b * c;
@@ -513,7 +513,8 @@ impl HaComputeNode {
     pub fn compute_hubs_validity_proof(
         &self,
         challenge: Challenge,
-        precision: usize,
+        c_precision: usize,
+        sqrt_precision: usize,
     ) -> HaComputeTreeValidityProof {
         // Construct merkle path for LT Tree and Compute Tree
         let peer_path = self
@@ -537,7 +538,7 @@ impl HaComputeNode {
         // To find the common grond needed for comparison
         let c_br = self.scores_hubs_br[n_index].clone();
         let c_prime_br = self.scores_hubs_final_br[n_index].clone();
-        let (c, c_prime) = lcm_decompose(c_br, c_prime_br, precision);
+        let (c, c_prime) = lcm_decompose(c_br, c_prime_br, c_precision);
 
         // Find lowest common multiplier for the sqrt of number and the number itself
         let sum: Br = self
@@ -548,7 +549,7 @@ impl HaComputeNode {
         let sum_sqrt = Br::new(sum.numer().sqrt(), sum.denom().sqrt());
 
         // Find lowest common multiplier for sqrt squared and the original sum
-        let (approx_r, real_r) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, precision);
+        let (approx_r, real_r) = lcm_decompose(sum_sqrt.clone() * sum_sqrt, sum, sqrt_precision);
 
         HaComputeTreeValidityProof {
             peer_path,
@@ -655,8 +656,8 @@ fn lcm_decompose(br_a: Br, br_b: Br, precision: usize) -> (BrDecomposed, BrDecom
 
 /// Converts a `BigRational` into scaled, decomposed numerator and denominator arrays of field elements.
 pub fn big_to_fe_rat(num: BigUint, den: BigUint, precision: usize) -> BrDecomposed {
-    let num_den_diff = num.to_string().len() - den.to_string().len();
-    assert!(precision >= num_den_diff * 2);
+    let num_den_diff = ((num.to_string().len() as i32) - (den.to_string().len() as i32)).abs();
+    assert!(precision >= (num_den_diff * 2) as usize);
 
     let bigger = num.clone().max(den.clone());
     let dig_len = bigger.to_string().len();

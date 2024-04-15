@@ -1,5 +1,5 @@
-use crate::compute_node::EtComputeNode;
-use crate::settlement::EtSmartContract;
+use crate::compute_node::{EtComputeNode, HaComputeNode};
+use crate::settlement::{EtSmartContract, HaSmartContract};
 use crate::systems::compute_node_et_work;
 use halo2curves::{bn256::Fr, ff::Field};
 use rand::thread_rng;
@@ -152,20 +152,23 @@ pub fn ha_optimisitic_interactive() {
     let initial_state_hubs = [32, 0, 22, 0, 66];
     let initial_state_auth = [32, 11, 14, 1, 33];
 
-    let mut sc = EtSmartContract::new();
+    let mut sc = HaSmartContract::new();
 
     // Compute node does the work
-    let (am_f, am_bn, res_f, res_br, res_final_br) =
+    let (am_f, _, res_f, res_br, res_final_br) =
         compute_node_ha_work(am, initial_state_hubs, initial_state_auth);
     let (scores_hubs_f, scores_auth_f) = res_f;
     let (scores_hubs_br, scores_auth_br) = res_br;
     let (final_scores_hubs_br, final_scores_auth_br) = res_final_br;
-    let compute_node = EtComputeNode::new(
+    let compute_node = HaComputeNode::new(
         peers.to_vec(),
-        am_f.map(|am_arr| am_arr.to_vec()).to_vec(),
+        am_f.map(|xs| xs.to_vec()).to_vec(),
         scores_hubs_f.to_vec(),
+        scores_auth_f.to_vec(),
         scores_hubs_br.to_vec(),
+        scores_auth_br.to_vec(),
         final_scores_hubs_br.to_vec(),
+        final_scores_auth_br.to_vec(),
     );
 
     // Compute node sumbits data to a smart contract
@@ -174,22 +177,16 @@ pub fn ha_optimisitic_interactive() {
 
     // Challenger submits a challenge
     let challenge_validity = Challenge {
-        from: peers[0], // wrong at the incoming arc from 'from'/peer[0]
+        from: peers[1], // wrong at the incoming arc from 'from'/peer[1]
         to: peers[3],   // this peers score is wrong
     };
-    let challange_consistency = ConsistencyChallenge {
-        target1: challenge_validity.clone(),
-        // Different location
-        target2: Challenge {
-            from: peers[0],
-            to: peers[4],
-        },
-    };
-    sc.post_challenge(challenge_validity.clone(), challange_consistency.clone());
 
-    let precision = 6;
+    sc.post_challenge(challenge_validity.clone());
+
+    let c_precision = 6;
+    let sqrt_precision = 5;
     // The submitter posts a response to the challenge
-    let validity_proof = compute_node.compute_validity_proof(challenge_validity, precision);
-    let consistency_proof = compute_node.compute_consistency_proof(challange_consistency);
-    sc.post_response(validity_proof, consistency_proof); // proof is also verified here
+    let validity_proof =
+        compute_node.compute_hubs_validity_proof(challenge_validity, c_precision, sqrt_precision);
+    sc.post_response(validity_proof); // proof is also verified here
 }
