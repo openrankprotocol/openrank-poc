@@ -325,8 +325,8 @@ impl HaComputeTreeValidityProof {
         let is_am_score_correct = (am_score == Fr::one()) || (am_score == Fr::zero());
         let is_edge_correct = edge == am_score;
 
+        // Check if the aggregated sum from neighbour tree is correct
         let composed_approx_sum = lcm_compose(self.approx_sum.clone());
-
         let is_approx_sum_equal = approx_equal(
             self.real_sum.clone(),
             real_r,
@@ -334,13 +334,15 @@ impl HaComputeTreeValidityProof {
             composed_approx_sum,
         );
 
-        // Check if the given sum sqrt is correct
+        // Check if the approximated sum sqrt is correct
         let composed_approx_sum_sqrt = lcm_compose(self.approx_sum_sqrt.clone());
         let is_approx_sqrt_correct =
             (composed_approx_sum_sqrt * composed_approx_sum_sqrt) == composed_approx_sum;
 
+        // Calculate approx score which is C' * 1/sqrt(sum(C^2))
         let approx_c_prime = c_prime * composed_approx_sum_sqrt.invert().unwrap();
 
+        // Check if the approximate score is close to original score used in the tree
         let is_approx_c_prime_equal = approx_equal(
             self.c.clone(),
             c,
@@ -370,6 +372,7 @@ impl HaComputeTreeValidityProof {
         let (n_root, _) = self.neighbour_path.root();
         let n_leaf = self.neighbour_path.value();
 
+        // Check if pre-image of the neighbouring leaf is correct
         let [sub_root_hash, a, b, c] = self.neighbour_score_preimage;
         let val = a + b * c;
         let hash = Hasher::new([sub_root_hash, a, b, c, Fr::zero()]).finalize();
@@ -394,6 +397,8 @@ impl HaComputeTreeValidityProof {
     }
 
     pub fn check_against_challenge(&self, challenge: Challenge) -> bool {
+        // Since for H&A the AM Matrix is transposed for calculating the authorities score
+        // We have to perform different checks for AM tree
         let (is_peer_lt_correct, is_neighbour_lt_correct) = if self.is_transposed_am {
             (
                 self.am_tree_path.master_tree_path.index == challenge.to,
@@ -443,8 +448,11 @@ impl HaComputeNode {
         scores_auth_final_unnormalised_br: Vec<Br>,
     ) -> Self {
         let ajacency_matrix_tree = AdjacencyMatrixTree::new(peers.clone(), am.clone());
+        // For Authorities Tree, the AM is transposed
+        // We assume that the matrix was transposed before being passed into this function
         let (auth_compute_tree, auth_compute_tree_preimages) =
             Self::construct_compute_tree(peers.clone(), am_t, scores_hubs_f.clone());
+        // For Hubs Tree, we pass the original AM matrix
         let (hubs_compute_tree, hubs_compute_tree_preimages) =
             Self::construct_compute_tree(peers.clone(), am, scores_auth_f.clone());
         Self {
