@@ -1,7 +1,4 @@
-use crate::compute_node::big_to_fe_rat;
-use halo2curves::bn256::Fr;
 use num_bigint::BigUint;
-use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{FromPrimitive, One, Zero};
 use std::array::from_fn;
@@ -73,6 +70,36 @@ pub fn run<const NUM_ITER: usize>(
     }
 
     (s_hubs, s_auth)
+}
+
+pub fn run_partial(
+    am: [[BigUint; NUM_NEIGHBOURS]; NUM_NEIGHBOURS],
+    initial_state_hubs: [Br; NUM_NEIGHBOURS],
+    initial_state_auth: [Br; NUM_NEIGHBOURS],
+) -> ([Br; NUM_NEIGHBOURS], [Br; NUM_NEIGHBOURS]) {
+    let mut s_hubs = initial_state_hubs.clone();
+    let mut s_auth = initial_state_auth.clone();
+    let transposed_am = transpose(am.clone());
+    let am_br = am.map(|xs| xs.map(|x| Br::new(x, BigUint::one())));
+    let transposed_am_br = transposed_am.map(|xs| xs.map(|x| Br::new(x, BigUint::one())));
+
+    let mut new_s_hubs = from_fn(|_| Br::zero());
+    let mut new_s_auth = from_fn(|_| Br::zero());
+
+    // Hubs
+    for i in 0..NUM_NEIGHBOURS {
+        for j in 0..NUM_NEIGHBOURS {
+            new_s_hubs[i] += am_br[j][i].clone() * s_auth[j].clone();
+        }
+    }
+    // Authorities
+    for i in 0..NUM_NEIGHBOURS {
+        for j in 0..NUM_NEIGHBOURS {
+            new_s_auth[i] += transposed_am_br[j][i].clone() * s_hubs[j].clone();
+        }
+    }
+
+    (new_s_hubs, new_s_auth)
 }
 
 pub fn run_job() {

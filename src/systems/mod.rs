@@ -2,9 +2,10 @@ use crate::{
     algo::{
         et_field,
         et_rational::{self, Br},
+        h_and_a_field::transpose,
         h_and_a_rational,
     },
-    compute_node::{big_to_fe_rat, compose_big_decimal_f},
+    compute_node::ratio_to_fr,
 };
 use halo2curves::{bn256::Fr, ff::PrimeField};
 use num_bigint::BigUint;
@@ -55,12 +56,13 @@ pub fn compute_node_ha_work(
     initial_state_auth: [u64; 5],
 ) -> (
     [[Fr; 5]; 5],
-    [[BigUint; 5]; 5],
+    [[Fr; 5]; 5],
     ([Fr; 5], [Fr; 5]),
     ([Br; 5], [Br; 5]),
     ([Br; 5], [Br; 5]),
 ) {
     let am_f = am.map(|xs| xs.map(|x| Fr::from(x)));
+    let am_t_f = transpose(am_f);
 
     let am_bn = am.map(|xs| xs.map(|x| BigUint::from(x)));
     let initial_state_hubs_bn = initial_state_hubs.map(|x| BigUint::from(x));
@@ -71,33 +73,18 @@ pub fn compute_node_ha_work(
 
     let (scores_hubs_br, scores_auth_br) =
         h_and_a_rational::run::<30>(am_bn.clone(), initial_state_hubs_br, initial_state_auth_br);
-    let (final_scores_hubs_br, final_scores_auth_br) = h_and_a_rational::run::<1>(
+    let (final_scores_hubs_br, final_scores_auth_br) = h_and_a_rational::run_partial(
         am_bn.clone(),
         scores_hubs_br.clone(),
         scores_auth_br.clone(),
     );
 
-    let precision = 6;
-    let scores_hubs_f = scores_hubs_br
-        .clone()
-        .map(|x| big_to_fe_rat(x.numer().clone(), x.denom().clone(), precision))
-        .map(|x| {
-            let num = compose_big_decimal_f(x.num, precision);
-            let den = compose_big_decimal_f(x.den, precision);
-            num * den.invert().unwrap()
-        });
-    let scores_auth_f = scores_auth_br
-        .clone()
-        .map(|x| big_to_fe_rat(x.numer().clone(), x.denom().clone(), precision))
-        .map(|x| {
-            let num = compose_big_decimal_f(x.num, precision);
-            let den = compose_big_decimal_f(x.den, precision);
-            num * den.invert().unwrap()
-        });
+    let scores_hubs_f = scores_hubs_br.clone().map(|x| ratio_to_fr(x));
+    let scores_auth_f = scores_auth_br.clone().map(|x| ratio_to_fr(x));
 
     (
         am_f,
-        am_bn,
+        am_t_f,
         (scores_hubs_f, scores_auth_f),
         (scores_hubs_br, scores_auth_br),
         (final_scores_hubs_br, final_scores_auth_br),

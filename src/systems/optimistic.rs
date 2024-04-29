@@ -155,7 +155,7 @@ pub fn ha_optimisitic_interactive() {
     let mut sc = HaSmartContract::new();
 
     // Compute node does the work
-    let (am_f, _, res_f, res_br, res_final_br) =
+    let (am_f, am_t_f, res_f, res_br, res_final_br) =
         compute_node_ha_work(am, initial_state_hubs, initial_state_auth);
     let (scores_hubs_f, scores_auth_f) = res_f;
     let (scores_hubs_br, scores_auth_br) = res_br;
@@ -163,6 +163,7 @@ pub fn ha_optimisitic_interactive() {
     let compute_node = HaComputeNode::new(
         peers.to_vec(),
         am_f.map(|xs| xs.to_vec()).to_vec(),
+        am_t_f.map(|xs| xs.to_vec()).to_vec(),
         scores_hubs_f.to_vec(),
         scores_auth_f.to_vec(),
         scores_hubs_br.to_vec(),
@@ -183,8 +184,8 @@ pub fn ha_optimisitic_interactive() {
 
     sc.post_challenge(challenge_validity.clone());
 
-    let c_precision = 6;
-    let sqrt_precision = 5;
+    let c_precision = 5;
+    let sqrt_precision = 8;
     // The submitter posts a response to the challenge
     let validity_proof =
         compute_node.compute_hubs_validity_proof(challenge_validity, c_precision, sqrt_precision);

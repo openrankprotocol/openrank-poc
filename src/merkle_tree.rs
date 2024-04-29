@@ -175,6 +175,16 @@ where
             _h: PhantomData,
         }
     }
+
+    pub fn get_leaves(&self) -> Vec<Fr> {
+        let mut leaves = Vec::new();
+        for (key, value) in &self.nodes {
+            if key.0 == 0 {
+                leaves.push(value.1);
+            }
+        }
+        leaves
+    }
 }
 
 #[derive(Clone)]
